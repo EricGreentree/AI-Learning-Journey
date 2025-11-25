@@ -1,0 +1,16 @@
+# macOS junk
+.DS_Store
+
+# Python cache
+__pycache__/
+
+# Log files
+*.log
+*log.txt
+
+# Backup folder we created earlier
+backup_conflict/
+
+# Image output folders (optional to ignore)
+images/
+other_files/
