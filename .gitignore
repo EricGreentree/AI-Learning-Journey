@@ -14,3 +14,4 @@ backup_conflict/
 # Image output folders (optional to ignore)
 images/
 other_files/
+.env
