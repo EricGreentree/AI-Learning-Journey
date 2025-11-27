@@ -1,17 +1,16 @@
+# Do NOT commit secrets
+.env
+
 # macOS junk
 .DS_Store
 
-# Python cache
+# Python caches
 __pycache__/
 
-# Log files
-*.log
-*log.txt
+# Logs
+organizer_log.txt
 
-# Backup folder we created earlier
-backup_conflict/
-
-# Image output folders (optional to ignore)
+# Generated folders
 images/
 other_files/
-.env
+backup_conflict/
