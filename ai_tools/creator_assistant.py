@@ -40,7 +40,7 @@ TONE & STYLE:
 - Avoid cheap jump scares; favor creeping dread and uncanny logic.
 """
     else:
-        # Placeholder for future channel-specific outline tones (e.g., Aperture Black narrative episodes)
+        # Placeholder for future channel-specific outline tones
         system_tone = (
             "You are an expert at crafting eerie, image-driven narrative outlines "
             "for surreal horror channels."
@@ -186,11 +186,31 @@ def generate_metadata(seed_idea: str, channel: str = "shrouded") -> str:
     return response.choices[0].message.content
 
 
+# ---------- SCRIPT EXPANDER WRAPPER ----------
+
+def expand_from_assistant(beat_text: str, channel: str = "shrouded") -> str:
+    """
+    Wrapper to call the script expander tool from within Creator Assistant.
+    """
+    from script_expander import expand_script  # local import
+    return expand_script(beat_text, channel=channel)
+
+
+# ---------- THUMBNAIL GENERATOR WRAPPER ----------
+
+def generate_thumbnails_from_assistant(seed_idea: str, channel: str = "shrouded") -> str:
+    """
+    Wrapper to call the thumbnail generator tool from within Creator Assistant.
+    """
+    from thumbnail_generator import generate_thumbnails  # local import
+    return generate_thumbnails(seed_idea, channel)
+
+
 # ---------- CLI WIRES ----------
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Creator Assistant: multi-tool CLI for outlines and metadata."
+        description="Creator Assistant: multi-tool CLI for outlines, metadata, script expansion, and thumbnails."
     )
 
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -231,6 +251,38 @@ def main():
         help="Channel preset (shrouded or aperture). Default: shrouded.",
     )
 
+    # Script expansion subcommand
+    expand_parser = subparsers.add_parser(
+        "expand", help="Expand an outline beat into full narration."
+    )
+    expand_parser.add_argument(
+        "beat",
+        nargs="+",
+        help="The outline beat text to expand.",
+    )
+    expand_parser.add_argument(
+        "--channel",
+        choices=["shrouded", "aperture"],
+        default="shrouded",
+        help="Tone preset for script expansion (default: shrouded).",
+    )
+
+    # Thumbnail subcommand
+    thumb_parser = subparsers.add_parser(
+        "thumbnail", help="Generate 5–8 thumbnail concepts."
+    )
+    thumb_parser.add_argument(
+        "seed",
+        nargs="+",
+        help="Short description or concept for the video.",
+    )
+    thumb_parser.add_argument(
+        "--channel",
+        choices=["shrouded", "aperture"],
+        default="shrouded",
+        help="Tone preset for thumbnail generation (default: shrouded).",
+    )
+
     args = parser.parse_args()
 
     if args.command == "outline":
@@ -251,6 +303,24 @@ def main():
         metadata = generate_metadata(seed_idea, channel=channel)
         print("=== METADATA ===\n")
         print(metadata)
+
+    elif args.command == "expand":
+        beat_text = " ".join(args.beat)
+        channel = args.channel
+
+        print(f"\n[Creator Assistant] Expanding SCRIPT (channel='{channel}')...\n")
+        narration = expand_from_assistant(beat_text, channel=channel)
+        print("=== EXPANDED SCRIPT ===\n")
+        print(narration)
+
+    elif args.command == "thumbnail":
+        seed_idea = " ".join(args.seed)
+        channel = args.channel
+
+        print(f"\n[Creator Assistant] Generating THUMBNAIL CONCEPTS (channel='{channel}')...\n")
+        thumbs = generate_thumbnails_from_assistant(seed_idea, channel)
+        print("=== THUMBNAIL CONCEPTS ===\n")
+        print(thumbs)
 
 
 if __name__ == "__main__":
