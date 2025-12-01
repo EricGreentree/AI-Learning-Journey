@@ -188,12 +188,13 @@ def generate_metadata(seed_idea: str, channel: str = "shrouded") -> str:
 
 # ---------- SCRIPT EXPANDER WRAPPER ----------
 
-def expand_from_assistant(beat_text: str, channel: str = "shrouded") -> str:
+def expand_from_assistant(beat_text: str, channel: str = "shrouded", broll: bool = True) -> str:
     """
     Wrapper to call the script expander tool from within Creator Assistant.
     """
     from script_expander import expand_script  # local import
-    return expand_script(beat_text, channel=channel)
+    return expand_script(beat_text, channel=channel, broll=broll)
+
 
 
 # ---------- THUMBNAIL GENERATOR WRAPPER ----------
@@ -251,7 +252,7 @@ def main():
         help="Channel preset (shrouded or aperture). Default: shrouded.",
     )
 
-    # Script expansion subcommand
+       # Script expansion subcommand
     expand_parser = subparsers.add_parser(
         "expand", help="Expand an outline beat into full narration."
     )
@@ -265,6 +266,11 @@ def main():
         choices=["shrouded", "aperture"],
         default="shrouded",
         help="Tone preset for script expansion (default: shrouded).",
+    )
+    expand_parser.add_argument(
+        "--no-broll",
+        action="store_true",
+        help="Disable the cinematic B-roll section in the expanded script.",
     )
 
     # Thumbnail subcommand
@@ -307,11 +313,14 @@ def main():
     elif args.command == "expand":
         beat_text = " ".join(args.beat)
         channel = args.channel
+        include_broll = not args.no_broll
 
-        print(f"\n[Creator Assistant] Expanding SCRIPT (channel='{channel}')...\n")
-        narration = expand_from_assistant(beat_text, channel=channel)
+        mode_label = "with B-ROLL" if include_broll else "no B-ROLL"
+        print(f"\n[Creator Assistant] Expanding SCRIPT (channel='{channel}', {mode_label})...\n")
+        narration = expand_from_assistant(beat_text, channel=channel, broll=include_broll)
         print("=== EXPANDED SCRIPT ===\n")
         print(narration)
+
 
     elif args.command == "thumbnail":
         seed_idea = " ".join(args.seed)
