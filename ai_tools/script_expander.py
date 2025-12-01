@@ -31,6 +31,12 @@ VOICE:
 - Emotionally restrained; horror emerges from logistics, systems, and implications.
 - Assume an intelligent audience; do not over-explain.
 
+SHOW, DON'T TELL (IMPORTANT):
+- Do NOT state a character's internal feelings directly (avoid phrases like "he felt scared," "she was anxious," "they were terrified").
+- Instead, describe observable behavior, physical reactions, environmental changes, or brief dialogue that imply the emotion.
+- Let the viewer infer how people feel from what they do, what changes around them, and what is left unsaid.
+
+
 STRUCTURE:
 - This segment should feel like part of a larger episode.
 - Use a calm, confident narrator voice.
