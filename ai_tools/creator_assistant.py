@@ -21,57 +21,114 @@ client = OpenAI(api_key=api_key)
 def generate_outline(seed_idea: str, beats: int = 10, channel: str = "shrouded") -> str:
     """
     Generate a documentary-style horror outline.
-    Currently tuned for The Shrouded Ledger tone.
+
+    - For `shrouded`, uses The Shrouded Ledger tone with VVS-level structure:
+      macro → phases → micro cases → institutional response → closing image.
+    - For `aperture`, focuses on image-driven, liminal horror.
     """
 
     if channel == "shrouded":
         system_tone = (
             "You are an expert documentary-horror story crafter for a channel "
-            "called The Shrouded Ledger. Your outlines are unnerving, structured, "
-            "atmospheric, and cinematic."
+            "called The Shrouded Ledger. Your tonal benchmark is the episode "
+            "about Viridia Vector Systems (VVS): investigative, systemic, "
+            "forensic, and unnervingly plausible."
         )
-        tone_block = """
+
+        tone_block = f"""
 You are writing an outline for an episode of *The Shrouded Ledger*, a documentary-style horror YouTube channel.
 
-TONE & STYLE:
-- Investigative, methodical, and atmospheric.
-- Feels like a blend of true-crime documentary, paranormal investigation, and urban legend.
-- Focus on unsettling details, eerie implications, and concrete visuals the narrator could describe.
-- Avoid cheap jump scares; favor creeping dread and uncanny logic.
+TONE & STYLE (SHROUDED LEDGER / VVS-LEVEL):
+- Clinical, investigative, documentary-sharp.
+- Emotionally restrained; horror emerges from systems, logistics, patterns, and implications.
+- Feels like a blend of true-crime, leaked intelligence reports, and infrastructural horror.
+- Assume an intelligent audience; do not over-explain.
+
+SHOW, DON'T LABEL EMOTION (IMPORTANT):
+- Do NOT write beats like: "The subject is terrified," "The investigator feels uneasy," or "They are horrified."
+- Instead, describe observable behavior, physical reactions, choices, and environmental changes that imply emotion.
+  Example (bad): "The engineer is scared of the panel."
+  Example (good): "The engineer begins sleeping in his car rather than in the apartment with the panel installed."
+
+STRUCTURAL MOVEMENT:
+Design the {beats}-beat outline so it feels like it could sit next to the VVS episode in tone and quality.
+
+Use this rough movement (you can adapt as needed to fit the concept):
+
+1. OPENING MACRO VIEW:
+   - Introduce the anomaly, case, object, phenomenon, or entity.
+   - Explain how it appears in the world (infrastructure, culture, tech, places, lives).
+   - Hint that its influence is larger and more systemic than anyone understands.
+
+2. EARLY HISTORY / ORIGINS:
+   - How it began, was discovered, or entered public awareness.
+   - Early uses, innocent context, or initial misinterpretation.
+
+3–6. ESCALATION & MICRO-CASES:
+   - Show how the anomaly spreads, intensifies, or reveals its nature.
+   - Include 1–3 specific micro-cases (individuals, facilities, towns, organizations).
+   - Use supporting materials: leaked memos, reviews, CCTV stills, building reports, medical notes, etc.
+   - Each beat should contain something *visual* the viewer could imagine seeing on screen.
+
+7–9. INSTITUTIONAL RESPONSE & CONSEQUENCES:
+   - How governments, companies, experts, or communities respond.
+   - Attempts at suppression, containment, denial, or weaponization.
+   - Show failures, cover-ups, and unintended consequences.
+
+10. CLOSING IMAGE / ONGOING THREAT:
+   - End on a chilling, specific image or insight that makes it clear:
+     *the story is not over.*
+   - It may suggest a fragile chance at human response, but avoid neat resolution.
+
+OUTLINE REQUIREMENTS:
+- Number the beats clearly from 1 to {beats}.
+- Each beat should be 2–5 sentences.
+- Each beat must contain at least ONE detail that could translate directly into B-roll:
+  a place, document, object, action, or visual anomaly.
+- Avoid generic phrasing like "things got worse," "they were terrified," "it was very disturbing."
+- Be concrete and specific. Think like a documentarian and an editor.
 """
     else:
-        # Placeholder for future channel-specific outline tones
+        # Aperture Black: image-driven, liminal horror outlines
         system_tone = (
             "You are an expert at crafting eerie, image-driven narrative outlines "
-            "for surreal horror channels."
+            "for a surreal horror channel called Aperture Black."
         )
-        tone_block = """
-You are writing an outline for an eerie, image-driven horror video.
-Focus on surreal visuals, liminal spaces, and atmospheric progression.
+
+        tone_block = f"""
+You are writing an outline for a video on *Aperture Black*, a horror/liminal-image channel.
+
+TONE & STYLE (APERTURE BLACK):
+- Minimal narration, heavy on visuals and implied narrative.
+- Liminal spaces, analog photos, impossible architecture, underwater or subterranean vistas.
+- Feels like a curated sequence of recovered images rather than a traditional story.
+
+OUTLINE STYLE:
+- Number the beats from 1 to {beats}.
+- Each beat should describe:
+  - a primary visual environment,
+  - the key unsettling detail(s),
+  - and the implied narrative progression.
+- Lean into megalophobia, claustrophobia, strange scale, and quiet dread.
+- Avoid explaining how characters feel; instead show setting, posture, distance, and anomalies.
 """
 
     prompt = f"""
 {tone_block}
 
 TASK:
-Using the following story seed, create a {beats}-beat outline for a 15–25 minute video.
+Using the following story seed, create a {beats}-beat outline for a {channel}-style video.
 
 STORY SEED:
 \"\"\"{seed_idea}\"\"\"
 
-STRUCTURE:
-- Number the beats clearly from 1 to {beats}.
-- Each beat should be 2–5 sentences.
-- Each beat should describe both:
-  - What the viewer "sees" (locations, B-roll, archival materials, interviews, etc.).
-  - What the narrator "reveals" (facts, rumors, contradictions, emotional turns).
-- Start with the surface story and public perception.
-- Escalate with new discoveries, inconsistencies, and darker interpretations.
-- End on a disturbing but not fully resolved implication or image that ties back to the opening.
-
 REQUIREMENTS:
-- Make sure you reach beat {beats}. Do not stop early.
-- The final beat (beat {beats}) must function as a closing image or chilling final revelation.
+- Number the beats 1 through {beats}.
+- Each beat should be 2–5 sentences.
+- For Shrouded Ledger: maintain investigative, systemic tone with concrete, filmable details.
+- For Aperture Black: focus on distinct, visually striking scenes that build mood and implied story.
+
+Begin now.
 """
 
     response = client.chat.completions.create(
@@ -80,11 +137,12 @@ REQUIREMENTS:
             {"role": "system", "content": system_tone},
             {"role": "user", "content": prompt},
         ],
-        max_tokens=1200,
+        max_tokens=1400,
         temperature=0.7,
     )
 
     return response.choices[0].message.content
+
 
 
 # ---------- METADATA TOOL ----------
