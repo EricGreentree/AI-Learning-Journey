@@ -255,6 +255,18 @@ def expand_from_assistant(beat_text: str, channel: str = "shrouded", broll: bool
 
 
 
+# ---------- PROJECT GENERATOR WRAPPER ----------
+
+def create_project_from_assistant(project_name: str, project_type: str = "shrouded") -> str:
+    """
+    Wrapper to call the project generator from within Creator Assistant.
+    """
+    from project_generator import create_project  # local import
+    return create_project(project_name, project_type)
+
+
+
+
 # ---------- THUMBNAIL GENERATOR WRAPPER ----------
 
 def generate_thumbnails_from_assistant(seed_idea: str, channel: str = "shrouded") -> str:
@@ -347,6 +359,23 @@ def main():
         help="Tone preset for thumbnail generation (default: shrouded).",
     )
 
+        # New project subcommand
+    project_parser = subparsers.add_parser(
+        "new-project",
+        help="Create a new creative project folder with starter templates.",
+    )
+    project_parser.add_argument(
+        "name",
+        nargs="+",
+        help="Name of the project (used for the folder).",
+    )
+    project_parser.add_argument(
+        "--type",
+        choices=["shrouded", "aperture", "novel"],
+        default="shrouded",
+        help="Type of project template to create (default: shrouded).",
+    )
+
     args = parser.parse_args()
 
     if args.command == "outline":
@@ -388,6 +417,15 @@ def main():
         thumbs = generate_thumbnails_from_assistant(seed_idea, channel)
         print("=== THUMBNAIL CONCEPTS ===\n")
         print(thumbs)
+
+    elif args.command == "new-project":
+        project_name = " ".join(args.name)
+        project_type = args.type
+
+        print(f"\n[Creator Assistant] Creating new project '{project_name}' (type='{project_type}')...\n")
+        result_path = create_project_from_assistant(project_name, project_type)
+        print(f"Project created at: {result_path}")
+
 
 
 if __name__ == "__main__":
