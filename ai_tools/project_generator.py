@@ -2,11 +2,21 @@ import os
 import textwrap
 
 def slugify_name(name: str) -> str:
+    """
+    Convert a project name into a safe folder name by stripping extra
+    whitespace and replacing path separators.
+    """
+
     # Simple slug: strip spaces at ends, replace path separators and double spaces
     slug = name.strip().replace("/", "-").replace("\\", "-")
     return slug
 
 def ensure_projects_root() -> str:
+    """
+    Ensure that the top-level 'Projects' directory exists at the same level
+    as the Week 1 folder, and return its path.
+    """
+
     # Projects folder is at the Week 1 level (parent of ai_tools)
     base_dir = os.path.dirname(os.path.dirname(__file__))
     projects_root = os.path.join(base_dir, "Projects")
@@ -14,6 +24,12 @@ def ensure_projects_root() -> str:
     return projects_root
 
 def shrouded_template(project_name: str) -> dict:
+    """
+    Build a dictionary of filename -> file contents for a Shrouded Ledger project.
+
+    The contents are Markdown templates with TODO sections.
+    """
+
     title = project_name.strip()
     outline = f"""# Shrouded Ledger Episode Outline – {title}
 
@@ -110,7 +126,13 @@ Use this file to jot down:
         "notes.md": textwrap.dedent(notes),
     }
 
-def aperture_template(project_name: str) -> dict:
+def aperture_template(project_name: str) -> dict: 
+    """
+    Build a dictionary of filename -> file contents for an Aperture Black project.
+
+    The contents are Markdown templates with TODO sections.
+    """
+    
     title = project_name.strip()
     outline = f"""# Aperture Black – Shot Outline – {title}
 
@@ -169,7 +191,12 @@ Use this to plan:
         "edit_notes.md": textwrap.dedent(edit),
     }
 
-def novel_template(project_name: str) -> dict:
+def novel_template(project_name: str) -> dict:  
+    """
+    Build a dictionary of filename -> file contents for a Novel project.
+
+    The contents are Markdown templates with TODO sections.
+    """
     title = project_name.strip()
     outline = f"""# Story / Novel Outline – {title}
 

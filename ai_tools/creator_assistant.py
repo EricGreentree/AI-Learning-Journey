@@ -20,12 +20,19 @@ client = OpenAI(api_key=api_key)
 
 def generate_outline(seed_idea: str, beats: int = 10, channel: str = "shrouded") -> str:
     """
-    Generate a documentary-style horror outline.
+    Generate a structured story outline using the OpenAI API.
 
-    - For `shrouded`, uses The Shrouded Ledger tone with VVS-level structure:
-      macro → phases → micro cases → institutional response → closing image.
-    - For `aperture`, focuses on image-driven, liminal horror.
+    Parameters:
+        seed_idea: Short description or concept for the episode/video.
+        beats: Number of outline beats to generate.
+        channel: 'shrouded' for The Shrouded Ledger tone,
+                 'aperture' for Aperture Black (image-driven) tone.
+
+    Returns:
+        A numbered outline as a single formatted string.
     """
+    ...
+
 
     if channel == "shrouded":
         system_tone = (
@@ -147,10 +154,17 @@ Begin now.
 
 # ---------- METADATA TOOL ----------
 
-def build_metadata_prompt(seed_idea: str, channel: str) -> str:
+def generate_metadata_from_assistant(seed_text: str) -> str:
     """
-    Build a channel-specific prompt for metadata generation.
+    Generate YouTube metadata for a video concept.
+
+    Parameters:
+        seed_text: Short summary or hook for the video.
+
+    Returns:
+        Metadata text including title, description, tags, and hashtags.
     """
+
 
     if channel == "shrouded":
         channel_blurb = """
@@ -248,8 +262,19 @@ def generate_metadata(seed_idea: str, channel: str = "shrouded") -> str:
 
 def expand_from_assistant(beat_text: str, channel: str = "shrouded", broll: bool = True) -> str:
     """
-    Wrapper to call the script expander tool from within Creator Assistant.
+    Expand a single outline beat into a full narrated script segment.
+
+    Uses script_expander.py under the hood.
+
+    Parameters:
+        beat_text: One outline beat or descriptive sentence.
+        channel: 'shrouded' or 'aperture' tone preset.
+        broll: If True, include a B-roll shotlist section in the output.
+
+    Returns:
+        Expanded narration text as a string.
     """
+
     from script_expander import expand_script  # local import
     return expand_script(beat_text, channel=channel, broll=broll)
 
@@ -259,8 +284,16 @@ def expand_from_assistant(beat_text: str, channel: str = "shrouded", broll: bool
 
 def create_project_from_assistant(project_name: str, project_type: str = "shrouded") -> str:
     """
-    Wrapper to call the project generator from within Creator Assistant.
+    Create a new creative project folder using project_generator.py.
+
+    Parameters:
+        project_name: Human-readable project title.
+        project_type: 'shrouded', 'aperture', or 'novel'.
+
+    Returns:
+        The filesystem path of the created project directory.
     """
+
     from project_generator import create_project  # local import
     return create_project(project_name, project_type)
 
@@ -269,10 +302,17 @@ def create_project_from_assistant(project_name: str, project_type: str = "shroud
 
 # ---------- THUMBNAIL GENERATOR WRAPPER ----------
 
-def generate_thumbnails_from_assistant(seed_idea: str, channel: str = "shrouded") -> str:
+def generate_thumbnails_from_assistant(seed_text: str) -> str:
     """
-    Wrapper to call the thumbnail generator tool from within Creator Assistant.
+    Generate thumbnail concept ideas and image prompts.
+
+    Parameters:
+        seed_text: Description or hook that should be reflected in the thumbnail.
+
+    Returns:
+        A formatted list of thumbnail concepts and prompt suggestions.
     """
+
     from thumbnail_generator import generate_thumbnails  # local import
     return generate_thumbnails(seed_idea, channel)
 
