@@ -234,7 +234,13 @@ HASHTAGS:
 
 def generate_metadata(seed_idea: str, channel: str = "shrouded") -> str:
     """
-    Call the OpenAI API to generate metadata text.
+    Generate YouTube metadata for a video concept.
+
+    Parameters:
+        seed_text: Short summary or hook for the video.
+
+    Returns:
+        Metadata text including title, description, tags, and hashtags.
     """
 
     prompt = build_metadata_prompt(seed_idea, channel)
@@ -299,22 +305,79 @@ def create_project_from_assistant(project_name: str, project_type: str = "shroud
 
 
 
-
 # ---------- THUMBNAIL GENERATOR WRAPPER ----------
 
-def generate_thumbnails_from_assistant(seed_text: str) -> str:
+def generate_thumbnails_from_assistant(seed_text: str, channel: str = "shrouded") -> str:
     """
     Generate thumbnail concept ideas and image prompts.
 
     Parameters:
         seed_text: Description or hook that should be reflected in the thumbnail.
+        channel:   'shrouded' for The Shrouded Ledger tone,
+                   'aperture' for Aperture Black tone.
 
     Returns:
         A formatted list of thumbnail concepts and prompt suggestions.
     """
 
-    from thumbnail_generator import generate_thumbnails  # local import
-    return generate_thumbnails(seed_idea, channel)
+    if channel == "shrouded":
+        tone = (
+            "the documentary horror aesthetic of The Shrouded Ledger: ominous but grounded, "
+            "with realistic lighting, subtle surreal details, and a sense of leaked evidence."
+        )
+    else:
+        tone = (
+            "the liminal, analog, haunted-digital aesthetic of Aperture Black: eerie empty spaces, "
+            "film grain, CRT bleed, underwater or subterranean textures, odd scale and perspective."
+        )
+
+    prompt = f"""
+You are a thumbnail concept designer for a horror YouTube channel.
+
+CHANNEL TONE:
+- Work in {tone}
+- Focus on concrete visual cues: composition, subject, environment, lighting, and perspective.
+- Do NOT describe character emotions directly. Show posture, distance, gesture, or surroundings instead.
+
+TASK:
+Based on the following seed idea, propose 3–5 thumbnail concepts.
+For each concept, include:
+
+1) A short TITLE for the concept (e.g., "The Vanishing Street", "Her Final Broadcast").
+2) A concrete COMPOSITION description:
+   - camera angle (e.g., wide shot, close-up, over-the-shoulder, CCTV frame)
+   - what is in the foreground, midground, and background
+   - key visual anomaly or unsettling detail
+3) A LEONARDO-STYLE PROMPT:
+   - single line, comma-separated visual descriptors ready to paste into an image generator
+   - include style cues appropriate to the channel (analog, film grain, CCTV, etc.)
+
+SEED IDEA:
+\"\"\"{seed_text}\"\"\"
+
+FORMAT:
+- Number each concept.
+- For each, clearly label:
+  - CONCEPT TITLE
+  - COMPOSITION
+  - LEONARDO PROMPT
+"""
+
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[
+            {
+                "role": "system",
+                "content": "You generate horror thumbnail concepts and concrete image prompts.",
+            },
+            {"role": "user", "content": prompt},
+        ],
+        max_tokens=900,
+        temperature=0.8,
+    )
+
+    return response.choices[0].message.content
+
 
 
 # ---------- CLI WIRES ----------
@@ -383,20 +446,21 @@ def main():
         help="Disable the cinematic B-roll section in the expanded script.",
     )
 
-    # Thumbnail subcommand
+       # Thumbnail subcommand
     thumb_parser = subparsers.add_parser(
-        "thumbnail", help="Generate 5–8 thumbnail concepts."
+        "thumbnail",
+        help="Generate thumbnail concepts and prompts.",
     )
     thumb_parser.add_argument(
         "seed",
         nargs="+",
-        help="Short description or concept for the video.",
+        help="Short description of the video or core image idea.",
     )
     thumb_parser.add_argument(
         "--channel",
         choices=["shrouded", "aperture"],
         default="shrouded",
-        help="Tone preset for thumbnail generation (default: shrouded).",
+        help="Tone preset for thumbnail concepts (default: shrouded).",
     )
 
         # New project subcommand
@@ -454,9 +518,10 @@ def main():
         channel = args.channel
 
         print(f"\n[Creator Assistant] Generating THUMBNAIL CONCEPTS (channel='{channel}')...\n")
-        thumbs = generate_thumbnails_from_assistant(seed_idea, channel)
+        thumbs = generate_thumbnails_from_assistant(seed_idea, channel=channel)
         print("=== THUMBNAIL CONCEPTS ===\n")
         print(thumbs)
+
 
     elif args.command == "new-project":
         project_name = " ".join(args.name)
