@@ -15,6 +15,8 @@ if not api_key:
 
 client = OpenAI(api_key=api_key)
 
+from project_generator import slugify_name  # add near top, where other imports from project_generator are
+
 
 # ---------- OUTLINE TOOL ----------
 
@@ -378,6 +380,108 @@ FORMAT:
 
     return response.choices[0].message.content
 
+ 
+ # ------------- Fill the Outline ----------
+    
+    def fill_project_outline_from_assistant(
+    project_name: str,
+    seed_idea: str,
+    beats: int = 10,
+    channel: str = "shrouded",
+) -> str: """
+    Generate an outline for a given project and append it to that project's outline.md.
+
+    Parameters:
+        project_name: The human-readable name of the project (same as used in new-project).
+        seed_idea:    The seed concept for the outline.
+        beats:        Number of outline beats.
+        channel:      'shrouded' or 'aperture'.
+
+    Returns:
+        The path to the outline.md file that was written to.
+    """
+    # Locate Projects root (same logic as project_generator.ensure_projects_root)
+    base_dir = os.path.dirname(os.path.dirname(__file__))  # ai_tools -> tools -> Week 1
+    projects_root = os.path.join(base_dir, "Projects")
+
+    folder_name = slugify_name(project_name)
+    project_dir = os.path.join(projects_root, folder_name)
+
+    if not os.path.isdir(project_dir):
+        raise FileNotFoundError(
+            f"Project folder not found: {project_dir}\n"
+            "Make sure you've created it with the 'new-project' command."
+        )
+
+    outline_path = os.path.join(project_dir, "outline.md")
+
+    # Generate the outline text using your existing outline generator
+    outline_text = generate_outline(seed_idea, beats=beats, channel=channel)
+
+    # Append to outline.md with a separator and header
+    header = f"\n\n---\n\n# AUTO-GENERATED OUTLINE ({channel}, {beats} beats)\n\n"
+    content_to_write = header + outline_text.strip() + "\n"
+
+    with open(outline_path, "a", encoding="utf-8") as f:
+        f.write(content_to_write)
+
+    return outline_path
+
+# ---------- Expand the Beat ----------
+
+def append_expanded_beat_to_script(
+    project_name: str,
+    beat_text: str,
+    channel: str = "shrouded",
+    include_broll: bool = True,
+) -> str:
+    """
+    Expand a single outline beat and append it to a project's script.md file.
+
+    Parameters:
+        project_name: Human-readable project name (same as used with new-project).
+        beat_text:    The outline beat or descriptive sentence to expand.
+        channel:      'shrouded' or 'aperture' tone preset.
+        include_broll: If True, include the B-roll section in the expansion.
+
+    Returns:
+        The filesystem path of the script.md file that was written to.
+    """
+    # Locate Projects root (parent of ai_tools is tools/)
+    base_dir = os.path.dirname(os.path.dirname(__file__))  # ai_tools -> tools
+    projects_root = os.path.join(base_dir, "Projects")
+
+    folder_name = slugify_name(project_name)
+    project_dir = os.path.join(projects_root, folder_name)
+
+    if not os.path.isdir(project_dir):
+        raise FileNotFoundError(
+            f"Project folder not found: {project_dir}\n"
+            "Make sure you've created it with the 'new-project' command."
+        )
+
+    script_path = os.path.join(project_dir, "script.md")
+
+    # Generate expanded narration using your existing expander
+    expanded = expand_from_assistant(beat_text, channel=channel, broll=include_broll)
+
+    # Short header so you know what this segment came from
+    short_beat = beat_text.strip().replace("\n", " ")
+    if len(short_beat) > 120:
+        short_beat = short_beat[:117] + "..."
+
+    header = (
+        f"\n\n---\n\n"
+        f"## AUTO-GENERATED SEGMENT ({channel})\n\n"
+        f"**Source beat:** {short_beat}\n\n"
+    )
+
+    content_to_write = header + expanded.strip() + "\n"
+
+    with open(script_path, "a", encoding="utf-8") as f:
+        f.write(content_to_write)
+
+    return script_path
 
 
 # ---------- CLI WIRES ----------
@@ -480,6 +584,65 @@ def main():
         help="Type of project template to create (default: shrouded).",
     )
 
+    # Fill-outline subcommand
+    fill_outline_parser = subparsers.add_parser(
+        "fill-outline",
+        help="Generate an outline for an existing project and append it to its outline.md.",
+    )
+    fill_outline_parser.add_argument(
+        "project",
+        nargs="+",
+        help="Name of the project (must match the name used with new-project).",
+    )
+    fill_outline_parser.add_argument(
+        "--seed",
+        nargs="+",
+        required=True,
+        help="Seed idea or summary for the episode/story.",
+    )
+    fill_outline_parser.add_argument(
+        "--beats",
+        type=int,
+        default=10,
+        help="Number of beats in the outline (default: 10).",
+    )
+    fill_outline_parser.add_argument(
+        "--channel",
+        choices=["shrouded", "aperture"],
+        default="shrouded",
+        help="Tone preset for outline (default: shrouded).",
+    )
+
+        # Fill-script subcommand
+    fill_script_parser = subparsers.add_parser(
+        "fill-script",
+        help="Expand a beat and append it to a project's script.md.",
+    )
+    fill_script_parser.add_argument(
+        "project",
+        nargs="+",
+        help="Name of the project (must match the name used with new-project).",
+    )
+    fill_script_parser.add_argument(
+        "--beat",
+        nargs="+",
+        required=True,
+        help="Outline beat or description to expand into narration.",
+    )
+    fill_script_parser.add_argument(
+        "--channel",
+        choices=["shrouded", "aperture"],
+        default="shrouded",
+        help="Tone preset for expansion (default: shrouded).",
+    )
+    fill_script_parser.add_argument(
+        "--no-broll",
+        action="store_true",
+        help="Disable the CINEMATIC B-ROLL section in the appended segment.",
+    )
+
+
+
     args = parser.parse_args()
 
     if args.command == "outline":
@@ -530,7 +693,96 @@ def main():
         print(f"\n[Creator Assistant] Creating new project '{project_name}' (type='{project_type}')...\n")
         result_path = create_project_from_assistant(project_name, project_type)
         print(f"Project created at: {result_path}")
+    
+    elif args.command == "fill-outline":
+        project_name = " ".join(args.project)
+        seed_idea = " ".join(args.seed)
+        beats = args.beats
+        channel = args.channel
 
+        print(
+            f"\n[Creator Assistant] Filling outline for project '{project_name}' "
+            f"({channel}, {beats} beats)...\n"
+        )
+
+        try:
+            outline_path = fill_project_outline_from_assistant(
+                project_name=project_name,
+                seed_idea=seed_idea,
+                beats=beats,
+                channel=channel,
+            )
+            print(f"Outline appended to: {outline_path}")
+        except FileNotFoundError as e:
+            print(f"Error: {e}")
+
+    elif args.command == "fill-script":
+        project_name = " ".join(args.project)
+        beat_text = " ".join(args.beat)
+        channel = args.channel
+        include_broll = not args.no_broll
+
+        print(
+            f"\n[Creator Assistant] Expanding beat into script for project "
+            f"'{project_name}' (channel='{channel}', broll={'on' if include_broll else 'off'})...\n"
+        )
+
+        try:
+            script_path = append_expanded_beat_to_script(
+                project_name=project_name,
+                beat_text=beat_text,
+                channel=channel,
+                include_broll=include_broll,
+            )
+            print(f"Segment appended to: {script_path}")
+        except FileNotFoundError as e:
+            print(f"Error: {e}")
+
+
+def fill_project_outline_from_assistant(
+    project_name: str,
+    seed_idea: str,
+    beats: int = 10,
+    channel: str = "shrouded",
+) -> str:
+    """
+    Generate an outline for a given project and append it to that project's outline.md.
+
+    Parameters:
+        project_name: The human-readable name of the project (same as used with new-project).
+        seed_idea:    The seed concept for the outline.
+        beats:        Number of outline beats.
+        channel:      'shrouded' or 'aperture'.
+
+    Returns:
+        The path to the outline.md file that was written to.
+    """
+    # Locate Projects root (parent of tools/)
+    base_dir = os.path.dirname(os.path.dirname(__file__))  # ai_tools -> tools -> Week 1
+    projects_root = os.path.join(base_dir, "Projects")
+
+    folder_name = slugify_name(project_name)
+    project_dir = os.path.join(projects_root, folder_name)
+
+    if not os.path.isdir(project_dir):
+        raise FileNotFoundError(
+            f"Project folder not found: {project_dir}\n"
+            "Make sure you've created it with the 'new-project' command."
+        )
+
+    outline_path = os.path.join(project_dir, "outline.md")
+
+    # Generate the outline text using your existing outline generator
+    outline_text = generate_outline(seed_idea, beats=beats, channel=channel)
+
+    # Append to outline.md with a separator and header
+    header = f"\n\n---\n\n# AUTO-GENERATED OUTLINE ({channel}, {beats} beats)\n\n"
+    content_to_write = header + outline_text.strip() + "\n"
+
+    with open(outline_path, "a", encoding="utf-8") as f:
+        f.write(content_to_write)
+
+    return outline_path
 
 
 if __name__ == "__main__":
