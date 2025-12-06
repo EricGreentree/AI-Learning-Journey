@@ -153,6 +153,108 @@ Begin now.
     return response.choices[0].message.content
 
 
+# ---------- ALTERNATIVES TOOL ----------
+
+def generate_ideas_from_assistant(
+    seed_idea: str,
+    count: int = 5,
+    channel: str = "shrouded",
+) -> str:
+    """
+    Generate multiple alternative story treatments for a Shrouded Ledger or Aperture Black episode.
+
+    Parameters:
+        seed_idea: A short description or premise (e.g., 'classified social experiment in a suburb').
+        count:     Number of alternative treatments to generate.
+        channel:   'shrouded' for documentary horror (The Shrouded Ledger),
+                   'aperture' for image-driven liminal horror (Aperture Black).
+
+    Returns:
+        A formatted string containing numbered story treatments.
+    """
+    if channel == "shrouded":
+        style_description = (
+            "documentary-style horror in the tone of The Shrouded Ledger: "
+            "investigative, calm, ominous, grounded in leaks, documents, and interviews. "
+            "No jump scares, no gore, but deep unease."
+        )
+    else:
+        style_description = (
+            "image-driven, liminal horror in the tone of Aperture Black: "
+            "disturbing photographs, analog textures, uncanny spaces, and subtle cosmic dread. "
+            "Narration is sparse and atmospheric, focusing on visual investigation rather than character psychology."
+        )
+
+    prompt = f"""
+You are designing episode concepts for a YouTube horror channel.
+
+CHANNEL STYLE:
+- Work in {style_description}
+- Focus on a CENTRAL ANOMALY or SYSTEM (device, program, corporation, experiment, location).
+- Show how it intersects with normal life: suburbs, offices, infrastructure, digital platforms.
+- Each concept should be self-contained, distinct from the others, and scalable to a 20–40 minute episode.
+
+IMPORTANT RULES:
+- Do NOT just describe vague feelings. Show concrete events, artifacts, footage, leaked memos, witness behavior.
+- Avoid generic 'lost tapes' or 'we don't know what happened' endings.
+- Make each idea specific enough that it feels like a real casefile, not a loose vibe.
+
+SEED IDEA:
+\"\"\"{seed_idea}\"\"\"
+
+
+TASK:
+Generate {count} different story treatments.
+
+For EACH treatment, include:
+
+1. A TITLE (evocative, like a Shrouded Ledger episode or Aperture Black video).
+2. A 2–3 sentence CORE PREMISE.
+3. The CENTRAL ANOMALY (what is actually going on? device / entity / program / experiment / infrastructure / pattern).
+4. The PRIMARY EVIDENCE that would appear in the episode:
+   - e.g., leaked internal documents, product manuals, error logs, urban legends, CCTV footage, photos, reviews, building plans.
+5. ESCALATION: 3 short bullet points that show how the situation worsens over time.
+6. PRESENT DAY STATUS: 1–2 sentences about what the world looks like after the events (cover-up? quiet integration? unexplained disappearances?).
+
+FORMAT IT LIKE THIS:
+
+1) TITLE: ...
+   PREMISE: ...
+   CENTRAL ANOMALY: ...
+   EVIDENCE:
+   - ...
+   - ...
+   ESCALATION:
+   - ...
+   - ...
+   - ...
+   PRESENT DAY STATUS: ...
+
+2) TITLE: ...
+   ...
+
+Make sure each treatment is clearly separated and numbered.
+"""
+
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[
+            {
+                "role": "system",
+                "content": (
+                    "You generate structured horror story treatments with concrete investigative details. "
+                    "You do not describe internal emotions directly; you show events, documents, and observable behavior."
+                ),
+            },
+            {"role": "user", "content": prompt},
+        ],
+        max_tokens=2000,
+        temperature=0.9,
+    )
+
+    return response.choices[0].message.content
+
+
 
 # ---------- METADATA TOOL ----------
 
@@ -513,6 +615,30 @@ def main():
         help="Tone preset for outline (default: shrouded).",
     )
 
+        # Ideas subcommand
+    ideas_parser = subparsers.add_parser(
+        "ideas",
+        help="Generate multiple alternative story treatments from a single seed idea.",
+    )
+    ideas_parser.add_argument(
+        "seed",
+        nargs="+",
+        help="Short description or premise (e.g., 'classified social experiment in a suburb').",
+    )
+    ideas_parser.add_argument(
+        "--count",
+        type=int,
+        default=5,
+        help="Number of different treatments to generate (default: 5).",
+    )
+    ideas_parser.add_argument(
+        "--channel",
+        choices=["shrouded", "aperture"],
+        default="shrouded",
+        help="Tone preset for ideas (default: shrouded).",
+    )
+
+
     # Metadata subcommand
     metadata_parser = subparsers.add_parser(
         "metadata", help="Generate YouTube metadata (title, description, tags, hashtags)."
@@ -654,6 +780,25 @@ def main():
         outline = generate_outline(seed_idea, beats=beats, channel=channel)
         print("=== OUTLINE ===\n")
         print(outline)
+
+    elif args.command == "ideas":
+        seed_idea = " ".join(args.seed)
+        count = args.count
+        channel = args.channel
+
+        print(
+            f"\n[Creator Assistant] Generating {count} alternative story treatments "
+            f"(channel='{channel}')...\n"
+        )
+
+        ideas_text = generate_ideas_from_assistant(
+            seed_idea=seed_idea,
+            count=count,
+            channel=channel,
+        )
+
+        print("=== STORY TREATMENTS ===\n")
+        print(ideas_text)    
 
     elif args.command == "metadata":
         seed_idea = " ".join(args.seed)
