@@ -2,6 +2,8 @@ import os
 import sys
 import argparse
 
+from datetime import datetime
+
 from dotenv import load_dotenv
 from openai import OpenAI
 
@@ -254,6 +256,104 @@ Make sure each treatment is clearly separated and numbered.
 
     return response.choices[0].message.content
 
+# ---------- IDEA LOCKER TOOL ----------
+
+def run_idea_locker(args: argparse.Namespace) -> None:
+    """
+    Save ideas text into a project's concepts.md file.
+
+    Usage patterns:
+
+      # Save from a file
+      creator_assistant.py idea-locker --project "Hush Pulse Initiative" \
+          --source /tmp/ideas_batch1.txt --label "Twin Flame Portal variants" --favorite
+
+      # Save directly from stdin (pipe from ideas command)
+      creator_assistant.py ideas "some seed idea" ... \
+          | creator_assistant.py idea-locker --project "Hush Pulse Initiative"
+
+      # List the current concepts.md
+      creator_assistant.py idea-locker --project "Hush Pulse Initiative" --list
+    """
+    project_name = args.project
+
+    # Match the same Projects root logic used by fill-outline / fill-script
+    base_dir = os.path.dirname(os.path.dirname(__file__))  # ai_tools -> tools
+    projects_root = os.path.join(base_dir, "Projects")
+
+    # Prefer the slugified folder name, but fall back to raw name if needed
+    slug_folder = slugify_name(project_name)
+    slug_dir = os.path.join(projects_root, slug_folder)
+    raw_dir = os.path.join(projects_root, project_name)
+
+    if os.path.isdir(slug_dir):
+        project_dir = slug_dir
+    elif os.path.isdir(raw_dir):
+        project_dir = raw_dir
+    else:
+        raise SystemExit(
+            "Project folder not found.\n"
+            f"Tried:\n  {slug_dir}\n  {raw_dir}\n"
+            "Make sure you've created the project with 'new-project'."
+        )
+
+    concepts_path = os.path.join(project_dir, "concepts.md")
+
+    # If user just wants to list existing concepts, do that and exit
+    if getattr(args, "list", False):
+        if not os.path.exists(concepts_path):
+            print(f"No concepts.md found for project: {project_name}")
+            return
+        with open(concepts_path, "r", encoding="utf-8") as f:
+            print(f.read())
+        return
+
+    # --- determine ideas text source ---
+    if args.source:
+        # Read from a file
+        if not os.path.exists(args.source):
+            raise SystemExit(f"Source file not found: {args.source}")
+        with open(args.source, "r", encoding="utf-8") as f:
+            ideas_text = f.read().strip()
+    else:
+        # Read from stdin (for piping)
+        if sys.stdin.isatty():
+            raise SystemExit(
+                "No --source provided and no stdin detected.\n"
+                "Either pass --source /path/to/file or pipe text into this command."
+            )
+        ideas_text = sys.stdin.read().strip()
+
+    if not ideas_text:
+        raise SystemExit("No ideas text to save (input was empty).")
+
+    # --- ensure concepts.md exists and has a header ---
+    is_new_file = not os.path.exists(concepts_path)
+    if is_new_file:
+        with open(concepts_path, "w", encoding="utf-8") as f:
+            f.write("# Idea Locker\n\n")
+            f.write(f"_Project:_ **{project_name}**\n\n")
+
+    # --- append a new batch section ---
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    label = args.label or ""
+    favorite_flag = "yes" if args.favorite else "no"
+
+    batch_header_parts = [f"### Batch – {timestamp}"]
+    if label:
+        batch_header_parts.append(f"({label})")
+    batch_header = " ".join(batch_header_parts)
+
+    with open(concepts_path, "a", encoding="utf-8") as f:
+        f.write("\n---\n\n")
+        f.write(f"{batch_header}\n\n")
+        f.write(f"- Favorite batch: **{favorite_flag}**\n")
+        f.write(f"- Source: `idea-locker`\n\n")
+        f.write("```text\n")
+        f.write(ideas_text)
+        f.write("\n```\n")
+
+    print(f"Ideas batch saved to {concepts_path}")
 
 
 # ---------- METADATA TOOL ----------
@@ -485,12 +585,13 @@ FORMAT:
  
  # ------------- Fill the Outline ----------
     
-    def fill_project_outline_from_assistant(
+def fill_project_outline_from_assistant(
     project_name: str,
     seed_idea: str,
     beats: int = 10,
     channel: str = "shrouded",
-) -> str: """
+) -> str:
+    """
     Generate an outline for a given project and append it to that project's outline.md.
 
     Parameters:
@@ -528,6 +629,7 @@ FORMAT:
         f.write(content_to_write)
 
     return outline_path
+
 
 # ---------- Expand the Beat ----------
 
@@ -638,6 +740,39 @@ def main():
         help="Tone preset for ideas (default: shrouded).",
     )
 
+    # Idea locker subcommand
+    idea_locker_parser = subparsers.add_parser(
+        "idea-locker",
+        help="Save ideas output into a project's concepts.md 'Idea Locker' file",
+)
+
+    idea_locker_parser.add_argument(
+        "--project",
+        required=True,
+        help="Project name (must match a folder under tools/Projects/)",
+)
+
+    idea_locker_parser.add_argument(
+        "--source",
+        help="Path to a text file containing ideas (if omitted, reads from stdin)",
+)
+
+    idea_locker_parser.add_argument(
+        "--label",
+        help="Optional label for this batch (e.g. 'Season 1 variants', 'Twin Flame Portal set')",
+)
+
+    idea_locker_parser.add_argument(
+        "--favorite",
+        action="store_true",
+        help="Mark this entire batch as a favorite",
+)
+
+    idea_locker_parser.add_argument(
+        "--list",
+        action="store_true",
+        help="Print the project's concepts.md instead of saving a new batch",
+)
 
     # Metadata subcommand
     metadata_parser = subparsers.add_parser(
@@ -838,6 +973,10 @@ def main():
         print(f"\n[Creator Assistant] Creating new project '{project_name}' (type='{project_type}')...\n")
         result_path = create_project_from_assistant(project_name, project_type)
         print(f"Project created at: {result_path}")
+
+    elif args.command == "idea-locker":
+        run_idea_locker(args)
+    
     
     elif args.command == "fill-outline":
         project_name = " ".join(args.project)
@@ -882,52 +1021,6 @@ def main():
             print(f"Segment appended to: {script_path}")
         except FileNotFoundError as e:
             print(f"Error: {e}")
-
-
-def fill_project_outline_from_assistant(
-    project_name: str,
-    seed_idea: str,
-    beats: int = 10,
-    channel: str = "shrouded",
-) -> str:
-    """
-    Generate an outline for a given project and append it to that project's outline.md.
-
-    Parameters:
-        project_name: The human-readable name of the project (same as used with new-project).
-        seed_idea:    The seed concept for the outline.
-        beats:        Number of outline beats.
-        channel:      'shrouded' or 'aperture'.
-
-    Returns:
-        The path to the outline.md file that was written to.
-    """
-    # Locate Projects root (parent of tools/)
-    base_dir = os.path.dirname(os.path.dirname(__file__))  # ai_tools -> tools -> Week 1
-    projects_root = os.path.join(base_dir, "Projects")
-
-    folder_name = slugify_name(project_name)
-    project_dir = os.path.join(projects_root, folder_name)
-
-    if not os.path.isdir(project_dir):
-        raise FileNotFoundError(
-            f"Project folder not found: {project_dir}\n"
-            "Make sure you've created it with the 'new-project' command."
-        )
-
-    outline_path = os.path.join(project_dir, "outline.md")
-
-    # Generate the outline text using your existing outline generator
-    outline_text = generate_outline(seed_idea, beats=beats, channel=channel)
-
-    # Append to outline.md with a separator and header
-    header = f"\n\n---\n\n# AUTO-GENERATED OUTLINE ({channel}, {beats} beats)\n\n"
-    content_to_write = header + outline_text.strip() + "\n"
-
-    with open(outline_path, "a", encoding="utf-8") as f:
-        f.write(content_to_write)
-
-    return outline_path
 
 
 if __name__ == "__main__":
