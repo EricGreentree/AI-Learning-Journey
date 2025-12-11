@@ -1,6 +1,7 @@
 import os
 import sys
 import argparse
+import re
 
 from datetime import datetime
 
@@ -583,7 +584,7 @@ FORMAT:
     return response.choices[0].message.content
 
  
- # ------------- Fill the Outline ----------
+ # ------------- OUTLINE FILLER ----------
     
 def fill_project_outline_from_assistant(
     project_name: str,
@@ -631,7 +632,7 @@ def fill_project_outline_from_assistant(
     return outline_path
 
 
-# ---------- Expand the Beat ----------
+# ---------- BEAT EXPANDER ----------
 
 def append_expanded_beat_to_script(
     project_name: str,
@@ -686,6 +687,362 @@ def append_expanded_beat_to_script(
         f.write(content_to_write)
 
     return script_path
+
+# ----------SCRIPT DRAFT BUILDER ----------
+
+def run_script_draft_builder(args: argparse.Namespace) -> None:
+    """
+    Build a full Draft 0 script from a project's curated beats file.
+
+    - Reads numbered beats from beats_final.md (or custom beats file)
+    - Expands each beat using expand_from_assistant()
+    - Appends a Draft 0 section to script.md in order
+    """
+    project_name = args.project
+    channel = args.channel
+    include_broll = not args.no_broll
+    beats_filename = args.beats_file or "beats_final.md"
+
+    try:
+        project_dir = _get_project_dir(project_name)
+    except FileNotFoundError as e:
+        raise SystemExit(str(e))
+
+    beats_path = os.path.join(project_dir, beats_filename)
+    script_path = os.path.join(project_dir, "script.md")
+
+    if not os.path.exists(beats_path):
+        raise SystemExit(
+            f"Beats file not found for project '{project_name}': {beats_path}\n"
+            "Run beat-manager first to create a final beat list."
+        )
+
+    with open(beats_path, "r", encoding="utf-8") as f:
+        beats_text = f.read()
+
+    beats = _parse_numbered_beats(beats_text)
+
+    if not beats:
+        raise SystemExit(
+            f"No numbered beats found in {beats_filename}.\n"
+            "Make sure it contains lines like '1. First beat...'"
+        )
+
+    total = len(beats)
+    mode_label = "with B-ROLL" if include_broll else "no B-ROLL"
+
+    print(
+        f"\n[Creator Assistant] Script Draft Builder\n"
+        f"Project: {project_name}\n"
+        f"Beats file: {beats_path}\n"
+        f"Output script: {script_path}\n"
+        f"Channel: {channel}, Mode: {mode_label}\n"
+        f"Beats to expand: {total}\n"
+    )
+
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    # Open script.md in append mode and write one Draft 0 section header
+    with open(script_path, "a", encoding="utf-8") as f:
+        f.write("\n\n---\n\n")
+        f.write(
+            f"# AUTO-GENERATED DRAFT 0 ({channel}, {mode_label})\n\n"
+            f"_Project:_ **{project_name}**\n"
+            f"_Generated:_ {timestamp}\n"
+            f"_Source beats file:_ `{os.path.basename(beats_path)}`\n\n"
+        )
+
+        for idx, (num, beat_text) in enumerate(beats, start=1):
+            print(f"[Creator Assistant] Expanding beat {idx}/{total} (original #{num})...")
+            expanded = expand_from_assistant(
+                beat_text,
+                channel=channel,
+                broll=include_broll,
+            )
+
+            # Short beat preview for the header
+            short_beat = beat_text.strip().replace("\n", " ")
+            if len(short_beat) > 160:
+                short_beat = short_beat[:157] + "..."
+
+            f.write(f"## Beat {idx}\n\n")
+            f.write(f"**Source beat:** {short_beat}\n\n")
+            f.write(expanded.strip())
+            f.write("\n\n")
+
+    print(f"\n[Creator Assistant] Draft 0 complete.")
+    print(f"Expanded {total} beats into: {script_path}")
+
+# ---------- BEAT MANAGER TOOL ----------
+
+def _get_project_dir(project_name: str) -> str:
+    """
+    Resolve a project directory using the same slug logic as fill-outline/fill-script.
+    """
+    base_dir = os.path.dirname(os.path.dirname(__file__))  # ai_tools -> tools
+    projects_root = os.path.join(base_dir, "Projects")
+
+    folder_name = slugify_name(project_name)
+    slug_dir = os.path.join(projects_root, folder_name)
+    raw_dir = os.path.join(projects_root, project_name)
+
+    if os.path.isdir(slug_dir):
+        return slug_dir
+    if os.path.isdir(raw_dir):
+        return raw_dir
+
+    raise FileNotFoundError(
+        "Project folder not found.\n"
+        f"Tried:\n  {slug_dir}\n  {raw_dir}\n"
+        "Make sure you've created it with 'new-project'."
+    )
+
+
+def _extract_latest_outline_section(outline_text: str) -> str:
+    """
+    Return the text from the last 'AUTO-GENERATED OUTLINE' header to the end.
+    If not found, return the entire outline_text.
+    """
+    marker = "AUTO-GENERATED OUTLINE"
+    last_index = outline_text.rfind(marker)
+    if last_index == -1:
+        return outline_text
+    # Back up to the start of the line for cleaner parsing
+    start_of_line = outline_text.rfind("\n", 0, last_index)
+    if start_of_line == -1:
+        start_of_line = 0
+    return outline_text[start_of_line:]
+
+
+def _parse_numbered_beats(section_text: str) -> list[tuple[int, str]]:
+    """
+    Parse beats like:
+      1. First beat...
+      2. Second beat...
+
+    Multi-line beats are supported; any lines until the next 'N.' line
+    are attached to the current beat.
+    Returns a list of (beat_number, beat_text).
+    """
+    lines = section_text.splitlines()
+    beats: list[tuple[int, str]] = []
+    current_num: int | None = None
+    current_lines: list[str] = []
+
+    beat_header_re = re.compile(r"^\s*(\d+)\.\s+(.*)")
+
+    for line in lines:
+        m = beat_header_re.match(line)
+        if m:
+            # flush previous beat
+            if current_num is not None and current_lines:
+                beats.append((current_num, "\n".join(current_lines).strip()))
+
+            current_num = int(m.group(1))
+            current_lines = [m.group(2)]
+        else:
+            # continuation of current beat
+            if current_num is not None:
+                current_lines.append(line)
+
+    # flush last beat
+    if current_num is not None and current_lines:
+        beats.append((current_num, "\n".join(current_lines).strip()))
+
+    return beats
+
+def run_beat_manager(args: argparse.Namespace) -> None:
+    """
+    Interactively curate beats from a project's outline.md into beats_final.md.
+
+    - Reads the last AUTO-GENERATED OUTLINE section from outline.md
+    - Lets you accept/reject/edit each beat
+    - Writes a curated, numbered beat list to beats_final.md (or custom output)
+    """
+    project_name = args.project
+    output_filename = args.output or "beats_final.md"
+
+    try:
+        project_dir = _get_project_dir(project_name)
+    except FileNotFoundError as e:
+        raise SystemExit(str(e))
+
+    outline_path = os.path.join(project_dir, "outline.md")
+    beats_path = os.path.join(project_dir, output_filename)
+
+    # If user only wants to list current beats_final, do that and exit
+    if args.list:
+        if not os.path.exists(beats_path):
+            print(f"No {output_filename} found for project '{project_name}'.")
+            return
+        with open(beats_path, "r", encoding="utf-8") as f:
+            print(f.read())
+        return
+
+    if not os.path.exists(outline_path):
+        raise SystemExit(f"outline.md not found for project: {project_dir}")
+
+    with open(outline_path, "r", encoding="utf-8") as f:
+        outline_text = f.read()
+
+    latest_section = _extract_latest_outline_section(outline_text)
+    beats = _parse_numbered_beats(latest_section)
+
+    if not beats:
+        raise SystemExit(
+            "No numbered beats found in the latest outline section.\n"
+            "Make sure your outline has lines like '1. First beat...'"
+        )
+
+    print(
+        f"\n[Creator Assistant] Beat Manager for project '{project_name}'\n"
+        f"Source: {outline_path}\n"
+        f"Output: {beats_path}\n"
+    )
+    print("You will now review each beat.")
+    print("Commands: [a]ccept (default), [r]eject, [e]dit, [q]uit\n")
+
+    curated_beats: list[str] = []
+
+    for idx, (num, text) in enumerate(beats, start=1):
+        print("──────────────────────────────────────────")
+        print(f"Beat {num} (#{idx} in this session):\n")
+        print(text)
+        print("\n[a]ccept / [r]eject / [e]dit / [q]uit > ", end="", flush=True)
+
+        choice = input().strip().lower() or "a"
+
+        if choice == "q":
+            print("\nStopping early. Saving accepted beats so far...\n")
+            break
+
+        elif choice == "r":
+            # Generate a replacement beat in place of the rejected one
+            print("\n→ Generating replacement beat via OpenAI...\n")
+            replacement_text = generate_replacement_beat(text, channel=args.channel)
+
+            print("Replacement proposal:\n")
+            print(replacement_text)
+            print("\n[a]ccept / [e]dit / [s]kip > ", end="", flush=True)
+
+            sub_choice = input().strip().lower() or "a"
+
+            if sub_choice == "a":
+                curated_beats.append(replacement_text.strip())
+                print("→ Replacement accepted.\n")
+            elif sub_choice == "e":
+                print("\nEnter new text for this replacement beat.")
+                print("Finish by entering a blank line on its own.\n")
+                new_lines: list[str] = []
+                while True:
+                    line = input()
+                    if line == "":
+                        break
+                    new_lines.append(line)
+                new_text = "\n".join(new_lines).strip()
+                if not new_text:
+                    print("No new text entered; replacement skipped.\n")
+                else:
+                    curated_beats.append(new_text)
+                    print("→ Replacement edited and accepted.\n")
+            else:
+                print("→ Replacement skipped; original beat rejected with no substitute.\n")
+
+            continue  # move on to the next original beat
+
+        elif choice == "e":
+            print("\nEnter new text for this beat.")
+            print("Finish by entering a blank line on its own.\n")
+            new_lines: list[str] = []
+            while True:
+                line = input()
+                if line == "":
+                    break
+                new_lines.append(line)
+            new_text = "\n".join(new_lines).strip()
+            if not new_text:
+                print("No new text entered; skipping this beat.\n")
+                continue
+            curated_beats.append(new_text)
+            print("→ Edited and accepted.\n")
+
+        else:  # default accept
+            curated_beats.append(text)
+            print("→ Accepted.\n")
+
+
+    if not curated_beats:
+        print("No beats were accepted. Nothing written.")
+        return
+
+    # Write beats_final.md
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    with open(beats_path, "w", encoding="utf-8") as f:
+        f.write("# Final Beat List\n\n")
+        f.write(f"_Project:_ **{project_name}**\n")
+        f.write(f"_Generated:_ {timestamp}\n\n")
+        f.write("---\n\n")
+        for i, beat_text in enumerate(curated_beats, start=1):
+            # Keep simple numbered format for Script Draft Builder
+            f.write(f"{i}. {beat_text}\n\n")
+
+    print(f"Curated {len(curated_beats)} beats.")
+    print(f"Final beat list written to: {beats_path}")
+
+
+
+# ----------BEAT REPLACEMENT TOOL ----------
+
+def generate_replacement_beat(original_beat: str, channel: str = "shrouded") -> str:
+    """
+    Use the OpenAI API to generate an alternative beat that could replace the original one.
+
+    - Keeps the same general story role/context.
+    - Changes the specific event, evidence, or imagery.
+    - Returns 2–5 sentences, no numbering.
+    """
+    if channel == "shrouded":
+        system_msg = (
+            "You are an expert documentary-horror story crafter for The Shrouded Ledger. "
+            "You revise outline beats so they stay structurally consistent but use different "
+            "events, evidence, or imagery. You do not describe emotions directly; you show "
+            "observable behavior, documents, and anomalies."
+        )
+    else:  # aperture
+        system_msg = (
+            "You are an expert in image-driven liminal horror outlines for Aperture Black. "
+            "You revise outline beats so they stay structurally consistent but use different "
+            "visual environments and unsettling details."
+        )
+
+    user_prompt = f"""
+You are revising ONE outline beat for a {channel}-style horror project.
+
+ORIGINAL BEAT:
+\"\"\"{original_beat}\"\"\"
+
+TASK:
+Write a different beat that could replace it in the same outline.
+
+Requirements:
+- Keep roughly the same structural role (scope, focus, where it comes in the story).
+- Change the specifics of the event, evidence, or visual imagery.
+- Write 2–5 sentences total.
+- Do NOT number the beat or add labels; return only the beat text.
+"""
+
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[
+            {"role": "system", "content": system_msg},
+            {"role": "user", "content": user_prompt},
+        ],
+        max_tokens=400,
+        temperature=0.8,
+    )
+
+    return response.choices[0].message.content.strip()
 
 
 # ---------- CLI WIRES ----------
@@ -902,6 +1259,57 @@ def main():
         help="Disable the CINEMATIC B-ROLL section in the appended segment.",
     )
 
+         # Beat manager subcommand
+    beat_manager_parser = subparsers.add_parser(
+        "beat-manager",
+        help="Curate beats from outline.md into a final beat list.",
+    )
+    beat_manager_parser.add_argument(
+        "--project",
+        required=True,
+        help="Name of the project (same as used with new-project).",
+    )
+    beat_manager_parser.add_argument(
+        "--output",
+        help="Name of the output beats file (default: beats_final.md).",
+    )
+    beat_manager_parser.add_argument(
+        "--list",
+        action="store_true",
+        help="Print the current final beats file instead of running interactive curation.",
+    )
+    beat_manager_parser.add_argument(
+        "--channel",
+        choices=["shrouded", "aperture"],
+        default="shrouded",
+        help="Tone preset used when generating replacement beats (default: shrouded).",
+    )
+
+    # Script draft builder subcommand
+    script_draft_parser = subparsers.add_parser(
+        "script-draft",
+        help="Generate a full Draft 0 script from a project's final beats file.",
+    )
+    script_draft_parser.add_argument(
+        "--project",
+        required=True,
+        help="Name of the project (same as used with new-project).",
+    )
+    script_draft_parser.add_argument(
+        "--beats-file",
+        help="Beats file to read (default: beats_final.md).",
+    )
+    script_draft_parser.add_argument(
+        "--channel",
+        choices=["shrouded", "aperture"],
+        default="shrouded",
+        help="Tone preset for expansion (default: shrouded).",
+    )
+    script_draft_parser.add_argument(
+        "--no-broll",
+        action="store_true",
+        help="Disable the CINEMATIC B-ROLL sections in the generated script.",
+    )
 
 
     args = parser.parse_args()
@@ -1022,6 +1430,11 @@ def main():
         except FileNotFoundError as e:
             print(f"Error: {e}")
 
+    elif args.command == "beat-manager":
+        run_beat_manager(args)
+
+    elif args.command == "script-draft":
+        run_script_draft_builder(args)
 
 if __name__ == "__main__":
     main()
