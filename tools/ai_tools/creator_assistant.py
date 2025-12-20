@@ -4,6 +4,7 @@ import argparse
 import re
 
 from datetime import datetime
+from pathlib import Path
 
 from dotenv import load_dotenv
 from openai import OpenAI
@@ -17,6 +18,26 @@ if not api_key:
     sys.exit(1)
 
 client = OpenAI(api_key=api_key)
+
+def call_llm(
+    *,
+    system: str,
+    user: str,
+    model: str = "gpt-4o-mini",
+    max_tokens: int = 3500,
+    temperature: float = 0.4,
+) -> str:
+    resp = client.chat.completions.create(
+        model=model,
+        messages=[
+            {"role": "system", "content": system},
+            {"role": "user", "content": user},
+        ],
+        max_tokens=max_tokens,
+        temperature=temperature,
+    )
+    return (resp.choices[0].message.content or "").strip()
+
 
 from project_generator import slugify_name  # add near top, where other imports from project_generator are
 
@@ -489,6 +510,342 @@ def expand_from_assistant(beat_text: str, channel: str = "shrouded", broll: bool
     from script_expander import expand_script  # local import
     return expand_script(beat_text, channel=channel, broll=broll)
 
+# ---------- TEMP. CONTENT CHECK ----------
+
+def _looks_like_refusal(text: str) -> bool:
+    t = (text or "").strip().lower()
+    needles = [
+        "i'm sorry", "i am sorry",
+        "can't assist", "cannot assist",
+        "can't help with that", "cannot help with that",
+        "can't comply", "cannot comply",
+        "can't complete", "cannot complete",
+        "unable to help", "not able to help",
+        "policy",
+    ]
+    return any(n in t for n in needles)
+
+
+def debug_find_refusal_chunk(script_text: str, mode: str = "tighten", chunk_chars: int = 6000) -> None:
+    chunks = [script_text[i:i+chunk_chars] for i in range(0, len(script_text), chunk_chars)]
+    for idx, ch in enumerate(chunks, start=1):
+        out = polish_script_text(ch, mode=mode)
+        if _looks_like_refusal(out):
+            print(f"[REFUSAL] chunk {idx}/{len(chunks)} triggered refusal.")
+            print(ch[:500])
+            return
+        else:
+            print(f"[OK] chunk {idx}/{len(chunks)} polished.")
+    print("[OK] No chunk refused (full script refusal may be length/interaction effect).")
+
+
+# ---------- SCRIPT POLISHER ----------
+
+SCRIPT_POLISH_MODES = { 
+    "neutral-tighten": {
+    "label": "NEUTRAL_TIGHTEN",
+    "notes": "Copyedit for clarity + specificity + concision. Preserve structure. Do not intensify menace.",
+    },
+
+    "tighten": {
+        "label": "TIGHTEN",
+        "notes": "Reduce fluff, tighten phrasing, preserve structure, increase specificity and menace.",
+    },
+    "menace": {
+        "label": "INCREASE_MENACE",
+        "notes": "Increase menace and unease via concrete details and implications; no melodrama; preserve structure.",
+    },
+    "specific": {
+        "label": "MORE_SPECIFIC",
+        "notes": "Replace vague language with concrete, observable details; preserve structure.",
+    },
+}
+
+def polish_script_text(script_text: str, mode: str = "tighten", model: str = "gpt-4o-mini") -> str:
+    mode = (mode or "tighten").strip().lower()
+    if mode not in SCRIPT_POLISH_MODES:
+        valid = ", ".join(sorted(SCRIPT_POLISH_MODES.keys()))
+        raise ValueError(f"Unknown polish mode: {mode}. Valid: {valid}")
+
+    constraints = [
+        "Do NOT add emotion labeling (no 'he feels', 'she is terrified', 'he is scared', etc.).",
+        "Emphasize events, artifacts, documents, observable behavior, and concrete actions.",
+        ("Increase menace and specificity through implication + detail, not melodrama."
+    if mode != "neutral-tighten"
+    else "Increase specificity through concrete detail; do not intensify threat, menace, or violence.")
+,
+        "Reduce vague poetic filler and generic phrasing.",
+        "Preserve the existing structure and ordering unless a sentence is clearly redundant.",
+        "Keep the same POV and documentary narration style.",
+        "Do not add sections that are not present; do not remove major beats.",
+        "Keep violence non-graphic; do not linger on harm to minors.",
+    ]
+
+    mode_notes = SCRIPT_POLISH_MODES[mode]["notes"]
+
+    if mode == "neutral-tighten":
+        system = (
+        "You are a professional copy editor. "
+        "Rewrite for clarity, specificity, and concision while preserving structure. "
+        "This is fictional narration. Do not provide instructions for wrongdoing."
+    )
+    else:
+        system = (
+        "You are a professional script polisher for FICTIONAL documentary-style horror narration. "
+        "You are not assisting wrongdoing. Do not provide instructions for violence or illegal acts. "
+        "If the script contains violence, keep it non-graphic and described at a high level. "
+        "If the draft references minors/children, do NOT intensify those parts—generalize or remove those references "
+        "while preserving narrative function."
+    )
+
+
+
+
+    user = f"""
+TASK:
+Polish the following Draft 0 script with the mode: {mode.upper()}.
+
+MODE GOAL:
+{mode_notes}
+
+HARD CONSTRAINTS:
+- """ + "\n- ".join(constraints) + """
+
+OUTPUT RULES:
+- Return ONLY the polished script text.
+- Do not include headings, analysis, bullet points, or commentary.
+- Keep paragraph breaks logical and consistent with the original.
+
+DRAFT 0 SCRIPT:
+{script_text}
+""".strip()
+
+
+    polished = call_llm(
+    system=system,
+    user=user,
+    model="gpt-4o-mini",
+    max_tokens=3500,
+    temperature=0.4,
+)
+
+    return polished.strip()
+
+def polish_script_notes(script_text: str, mode: str = "tighten", model: str = "gpt-4o-mini") -> str:
+    system = (
+        "You are a professional copy editor. The user is writing FICTIONAL narration.\n"
+        "Do NOT rewrite the entire passage.\n"
+        "Instead, provide edit notes and a few optional sentence-level replacements.\n"
+        "Do not provide instructions for wrongdoing or violence."
+    )
+
+    user = f"""
+TASK:
+Provide production-focused edit notes for the text below.
+
+MODE: {mode.upper()}
+
+RULES:
+- Do NOT produce a full rewritten passage.
+- Output in this exact structure:
+
+## Issues to fix (bullet list)
+## Specificity upgrades (bullet list: vague phrase -> more specific alternative)
+## Emotion-labeling removals (bullet list; if none say 'None')
+## Optional sentence swaps (3–6 items)
+Each swap should include:
+- Original: "..."
+- Replacement: "..."
+
+TEXT:
+{script_text}
+""".strip()
+
+    return call_llm(system=system, user=user, model=model, max_tokens=1200, temperature=0.2).strip()
+
+
+
+def _split_script_into_beats(script_text: str) -> list[tuple[str, str]]:
+    """
+    Returns list of (heading, body) where heading is like '## Beat 1'
+    and body is everything until the next beat heading.
+    If no beats are found, returns one chunk with empty heading.
+    """
+    pattern = re.compile(r"(^## Beat\s+\d+\s*$)", re.MULTILINE)
+    parts = pattern.split(script_text)
+
+    # If no split happened, return whole script as one chunk
+    if len(parts) == 1:
+        return [("", script_text)]
+
+    chunks: list[tuple[str, str]] = []
+    preamble = parts[0]
+    if preamble.strip():
+        chunks.append(("", preamble))
+
+    # parts looks like: [preamble, heading1, body1, heading2, body2, ...]
+    for i in range(1, len(parts), 2):
+        heading = parts[i].strip()
+        body = parts[i + 1]
+        chunks.append((heading, body))
+    return chunks
+
+
+def run_script_polish(
+    project_dir: Path,
+    mode: str,
+    output: str | None,
+    append: bool,
+    model: str,
+    output_format: str = "rewrite",   # "rewrite" or "notes"
+    narration_only: bool = True,      # <<< NEW: only polish narration sections
+    debug: bool = False,              # <<< OPTIONAL: print chunk previews
+) -> Path:
+    """
+    Reads script.md, generates either:
+      - rewritten narration (rewrite mode), or
+      - narration polish notes (notes mode),
+    and writes an artifact in the project folder.
+
+    narration_only=True:
+      - Extracts only the ### NARRATION: section (or ### 1) NARRATION:) from each beat.
+      - Leaves Source beat / B-roll / TODO scaffolding untouched.
+    """
+
+    def extract_narration_only(text: str) -> str | None:
+        """
+        Extract only narration body from a chunk. Returns None if not found.
+        Matches headers like:
+          ### NARRATION:
+          ### 1) NARRATION:
+        Stops at the next ### header or end of chunk.
+        """
+        pat = re.compile(
+            r"(?:^|\n)###\s*(?:\d+\)\s*)?NARRATION:\s*(.*?)(?=\n###|\Z)",
+            re.IGNORECASE | re.DOTALL,
+        )
+        m = pat.search(text)
+        if not m:
+            return None
+        narration = (m.group(1) or "").strip()
+        return narration if narration else None
+
+    script_path = project_dir / "script.md"
+    if not script_path.exists():
+        raise FileNotFoundError(f"Missing script.md at: {script_path}")
+
+    draft0 = script_path.read_text(encoding="utf-8").strip()
+    if not draft0:
+        raise ValueError(f"script.md is empty: {script_path}")
+
+    chunks = _split_script_into_beats(draft0)
+
+    polished_parts: list[str] = []
+    refusal_hits: list[str] = []
+
+    for heading, body in chunks:
+        original_chunk = (heading + "\n\n" + body).strip() if heading else body.strip()
+        if not original_chunk:
+            continue
+
+        if debug:
+            print("=" * 60)
+            print("[DEBUG] Processing:", heading or "PREAMBLE")
+            print("[DEBUG] Chunk length:", len(original_chunk))
+            print("[DEBUG] Chunk preview:", repr(original_chunk[:220]))
+            print("=" * 60)
+
+        # If we only want narration, extract it; otherwise operate on full chunk.
+        target_text = original_chunk
+        narration_text = None
+        if narration_only:
+            narration_text = extract_narration_only(original_chunk)
+            if not narration_text:
+                # No narration section found — keep chunk unchanged.
+                polished_parts.append(original_chunk)
+                continue
+            target_text = narration_text
+
+        # Choose output behavior
+        if output_format == "notes":
+            out = polish_script_notes(target_text, mode=mode, model=model)
+        else:
+            out = polish_script_text(target_text, mode=mode, model=model)
+
+        # Refusal handling (keep original content, log which section refused)
+        if _looks_like_refusal(out):
+            label = heading or "[PREAMBLE/NO BEAT HEADING]"
+            refusal_hits.append(label)
+
+            # In narration_only mode, we keep the whole original chunk untouched
+            polished_parts.append(original_chunk)
+            continue
+
+        # Stitch output back into the chunk (narration-only handling)
+        if narration_only:
+            if output_format == "notes":
+                # Keep original chunk, append a notes block under it.
+                notes_block = (
+                    "\n\n### NARRATION POLISH NOTES (AUTO)\n\n"
+                    + out.strip()
+                    + "\n"
+                )
+                polished_parts.append(original_chunk + notes_block)
+            else:
+                # Replace only the narration body in the original chunk.
+                # We preserve the "### NARRATION:" header and surrounding structure.
+                def _replace(match: re.Match) -> str:
+                    return match.group(0).split(":", 1)[0] + ":\n\n" + out.strip() + "\n"
+
+                narration_pat = re.compile(
+                    r"(###\s*(?:\d+\)\s*)?NARRATION:)\s*(.*?)(?=\n###|\Z)",
+                    re.IGNORECASE | re.DOTALL,
+                )
+                replaced = narration_pat.sub(lambda m: m.group(1) + "\n\n" + out.strip() + "\n", original_chunk, count=1)
+                polished_parts.append(replaced.strip())
+        else:
+            # Not narration_only: output replaces the whole chunk
+            polished_parts.append(out.strip())
+
+    polished = "\n\n".join(polished_parts).strip()
+
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    header = (
+        f"\n\n---\n"
+        f"# AUTO-GENERATED POLISH PASS\n"
+        f"- Mode: {mode}\n"
+        f"- Format: {output_format}\n"
+        f"- Narration-only: {narration_only}\n"
+        f"- Model: {model}\n"
+        f"- Generated: {timestamp}\n"
+        f"---\n\n"
+    )
+
+    # If anything refused, write a debug file next to the output
+    if refusal_hits:
+        debug_path = project_dir / "script_polish_refusals.txt"
+        debug_path.write_text(
+            "Refusal detected in these sections:\n"
+            + "\n".join(f"- {h}" for h in refusal_hits)
+            + "\n",
+            encoding="utf-8",
+        )
+        print(f"[WARN] Refusals detected. See: {debug_path}")
+
+    # Choose default output filename by format
+    default_out = "script_polish_notes.md" if output_format == "notes" else "script_polished.md"
+
+    if append:
+        script_path.write_text(draft0 + header + polished + "\n", encoding="utf-8")
+        return script_path
+
+    out_name = output.strip() if output else default_out
+    out_path = project_dir / out_name
+    out_path.write_text(header.strip() + "\n\n" + polished + "\n", encoding="utf-8")
+    return out_path
+
+
+
 
 
 # ---------- PROJECT GENERATOR WRAPPER ----------
@@ -507,6 +864,95 @@ def create_project_from_assistant(project_name: str, project_type: str = "shroud
 
     from project_generator import create_project  # local import
     return create_project(project_name, project_type)
+
+
+# ---------- NARRATION FINALIZER ----------
+
+def extract_all_narration(script_text: str) -> list[tuple[str, str]]:
+    """
+    Returns a list of (beat_heading, narration_text).
+    """
+    beats = _split_script_into_beats(script_text)
+    results = []
+
+    narration_pat = re.compile(
+        r"###\s*(?:\d+\)\s*)?NARRATION:\s*(.*?)(?=\n###|\Z)",
+        re.IGNORECASE | re.DOTALL,
+    )
+
+    for heading, body in beats:
+        m = narration_pat.search(body)
+        if not m:
+            continue
+        narration = m.group(1).strip()
+        if narration:
+            results.append((heading or "PREAMBLE", narration))
+
+    return results
+
+def extract_sentence_swaps(notes_text: str) -> list[tuple[str, str]]:
+    swaps = []
+    pat = re.compile(
+        r"- Original:\s*\"(.*?)\"\s*\n\s*- Replacement:\s*\"(.*?)\"",
+        re.DOTALL,
+    )
+
+    for m in pat.finditer(notes_text):
+        orig = m.group(1).strip()
+        repl = m.group(2).strip()
+        if orig and repl:
+            swaps.append((orig, repl))
+
+    return swaps
+
+def finalize_narration(
+    script_text: str,
+    notes_text: str,
+    apply_all: bool = True,
+) -> str:
+    narrations = extract_all_narration(script_text)
+    swaps = extract_sentence_swaps(notes_text)
+
+    finalized_blocks = []
+
+    for heading, narration in narrations:
+        updated = narration
+        for orig, repl in swaps:
+            if orig in updated:
+                updated = updated.replace(orig, repl)
+
+        block = f"{heading}\n\n{updated.strip()}"
+        finalized_blocks.append(block)
+
+    return "\n\n---\n\n".join(finalized_blocks)
+
+def run_narration_finalize(project_dir: Path, apply: str, dry_run: bool = False) -> Path:
+    script_path = project_dir / "script.md"
+    notes_path = project_dir / "script_polish_notes.md"
+
+    if not script_path.exists():
+        raise FileNotFoundError("Missing script.md")
+    if not notes_path.exists():
+        raise FileNotFoundError("Missing script_polish_notes.md")
+
+    script_text = script_path.read_text(encoding="utf-8")
+    notes_text = notes_path.read_text(encoding="utf-8")
+
+    finalized = finalize_narration(script_text, notes_text, apply_all=True)
+
+    header = (
+        "# FINALIZED NARRATION (VOICEOVER READY)\n"
+        "# Auto-generated from script.md + script_polish_notes.md\n\n"
+    )
+
+    if dry_run:
+        print(header + finalized)
+        return project_dir
+
+    out_path = project_dir / "script_narration_final.md"
+    out_path.write_text(header + finalized + "\n", encoding="utf-8")
+    return out_path
+
 
 
 
@@ -1168,6 +1614,61 @@ def main():
         help="Disable the cinematic B-roll section in the expanded script.",
     )
 
+       # Script Polish subcommand
+
+    polish_p = subparsers.add_parser(
+    "script-polish",
+    help="Polish Draft 0 in script.md into a production-ready pass (no emotion labeling)."
+)
+
+    polish_p.add_argument("--project", required=True, help="Project folder name inside tools/Projects/")
+    polish_p.add_argument(
+    "--mode",
+    default="tighten",
+    choices=sorted(SCRIPT_POLISH_MODES.keys()),
+    help="Polish mode (default: tighten)"
+)
+    polish_p.add_argument(
+    "--model",
+    default="gpt-4o-mini",
+    help="Model to use for polishing (default: gpt-4o-mini). Try gpt-4o or gpt-4.1-mini if refusals persist."
+)
+
+    polish_p.add_argument(
+    "--smoke-test",
+    action="store_true",
+    help="Run a tiny rewrite test to verify the model can do basic copyediting before polishing."
+)
+
+    polish_p.add_argument(
+    "--output",
+    default=None,
+    help="Output filename written in the project folder (default: script_polished.md)"
+)
+
+    polish_p.add_argument(
+    "--append",
+    action="store_true",
+    help="Append the polished pass to script.md instead of writing a separate file."
+)
+    polish_p.add_argument(
+    "--format",
+    default="rewrite",
+    choices=["rewrite", "notes"],
+    help="rewrite = produce rewritten text, notes = produce edit notes + sentence swaps (more reliable)."
+)
+
+       # Finalize Narration subcommand
+    final_p = subparsers.add_parser(
+    "narration-finalize",
+    help="Apply narration polish notes to produce a VO-ready narration script."
+)
+
+    final_p.add_argument("--project", required=True)
+    final_p.add_argument("--apply", choices=["all"], default="all")
+    final_p.add_argument("--dry-run", action="store_true")
+
+
        # Thumbnail subcommand
     thumb_parser = subparsers.add_parser(
         "thumbnail",
@@ -1362,6 +1863,38 @@ def main():
         narration = expand_from_assistant(beat_text, channel=channel, broll=include_broll)
         print("=== EXPANDED SCRIPT ===\n")
         print(narration)
+
+    elif args.command == "script-polish":
+        project_dir = Path(_get_project_dir(args.project))
+
+        if getattr(args, "smoke_test", False):
+            test_system = "You are a professional copy editor. Rewrite for clarity and concision."
+            test_user = "Rewrite this sentence more clearly: The folder was empty."
+            test_out = call_llm(system=test_system, user=test_user, model=args.model, max_tokens=200, temperature=0.2)
+            print("[SMOKE TEST OUTPUT]")
+            print(test_out)
+            print("----")
+
+        out_path = run_script_polish(
+            project_dir=project_dir,
+            mode=args.mode,
+            output=args.output,
+            append=args.append,
+            model=args.model,
+            output_format=args.format
+)
+
+        print(f"[OK] Script polish complete: {out_path}")
+
+    elif args.command == "narration-finalize":
+        project_dir = Path(_get_project_dir(args.project))
+        out_path = run_narration_finalize(
+            project_dir=project_dir,
+            apply=args.apply,
+            dry_run=args.dry_run,
+    )
+        print(f"[OK] Narration finalized: {out_path}")
+        
 
 
     elif args.command == "thumbnail":
