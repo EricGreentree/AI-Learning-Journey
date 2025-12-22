@@ -1029,9 +1029,144 @@ FORMAT:
 
     return response.choices[0].message.content
 
- 
- # ------------- OUTLINE FILLER ----------
-    
+
+# ---------- PUBLISH PACK TOOL ----------
+
+def build_publish_pack_prompt(
+    narration_text: str,
+    *,
+    channel: str = "shrouded",
+    title_count: int = 10,
+    description_count: int = 3,
+    thumbnail_count: int = 8,
+) -> str:
+    """Build a prompt that turns finalized narration into an upload-ready publish pack."""
+    # Keep narration bounded; we want metadata, not a rewrite.
+    narration_text = narration_text.strip()
+
+    style_hint = (
+        "Documentary-horror tone: clinical, investigative, ominous, restrained."
+        if channel == "shrouded"
+        else "Atmospheric sci-fi/liminal tone: evocative, mysterious, minimal, image-forward."
+    )
+
+    return f"""You are given FINALIZED narration for a YouTube video.
+
+GOAL
+Create an upload-ready PUBLISH PACK derived ONLY from the narration. Do not rewrite the narration.
+
+STYLE
+{style_hint}
+
+HARD RULES
+- Do NOT invent plot points, locations, organizations, dates, or claims that are not clearly supported by the narration.
+- You MAY generalize into SEO-friendly phrasing (e.g., "classified", "leaked", "archival"), but keep it plausible.
+- No spoilers that reveal the ending if the narration is structured as a reveal; keep descriptions hook-forward.
+- Output must be in markdown and follow the exact template below.
+
+OUTPUT TEMPLATE (markdown)
+# Publish Pack
+
+## Titles ({title_count})
+1. ...
+2. ...
+...
+
+## Descriptions ({description_count})
+### Description 1
+<150–220 words. Hook in first 2 lines. 1 short paragraph break. End with a single-line call-to-action. No bullet lists.>
+
+### Description 2
+...
+
+### Description 3
+...
+
+## Tags (comma-separated, <= 500 characters)
+tag1, tag2, tag3, ...
+
+## Hashtags (10–15)
+#tag
+#tag
+...
+
+## Thumbnail Concepts ({thumbnail_count})
+For each concept, provide:
+- Concept: <1 sentence>
+- Overlay Text: <2–5 words>
+- Visual Notes: <short notes on composition, focal point, contrast, mood>
+
+NARRATION (source)
+""" + narration_text + """"""
+
+
+def generate_publish_pack_from_narration(
+    narration_text: str,
+    *,
+    channel: str = "shrouded",
+    model: str = "gpt-4o-mini",
+    title_count: int = 10,
+    description_count: int = 3,
+    thumbnail_count: int = 8,
+) -> str:
+    """Generate a full publish pack from finalized narration text."""
+    system = (
+        "You are an expert YouTube packaging strategist. "
+        "You create titles, descriptions, tags, hashtags, and thumbnail concepts "
+        "that match the source narration and improve click-through and search discovery."
+    )
+    user = build_publish_pack_prompt(
+        narration_text,
+        channel=channel,
+        title_count=title_count,
+        description_count=description_count,
+        thumbnail_count=thumbnail_count,
+    )
+    return call_llm(
+        system=system,
+        user=user,
+        model=model,
+        max_tokens=1600,
+        temperature=0.6,
+    )
+
+
+def run_publish_pack(
+    *,
+    project_dir: Path,
+    script_filename: str = "script_narration_final.md",
+    output_filename: str = "publish_pack.md",
+    channel: str = "shrouded",
+    model: str = "gpt-4o-mini",
+    title_count: int = 10,
+    description_count: int = 3,
+    thumbnail_count: int = 8,
+) -> Path:
+    """Read finalized narration and write publish_pack.md to the project folder."""
+    in_path = project_dir / script_filename
+    if not in_path.exists():
+        raise FileNotFoundError(
+            f"Final narration not found: {in_path}\n"
+            "Run 'narration-finalize' first (or pass --script to point at a different file)."
+        )
+
+    narration_text = in_path.read_text(encoding="utf-8")
+
+    pack_md = generate_publish_pack_from_narration(
+        narration_text,
+        channel=channel,
+        model=model,
+        title_count=title_count,
+        description_count=description_count,
+        thumbnail_count=thumbnail_count,
+    )
+
+    out_path = project_dir / output_filename
+    out_path.write_text(pack_md.strip() + "\n", encoding="utf-8")
+    return out_path
+
+# ---------- OUTLINE FILL ----------
+
 def fill_project_outline_from_assistant(
     project_name: str,
     seed_idea: str,
@@ -1615,7 +1750,6 @@ def main():
     )
 
        # Script Polish subcommand
-
     polish_p = subparsers.add_parser(
     "script-polish",
     help="Polish Draft 0 in script.md into a production-ready pass (no emotion labeling)."
@@ -1685,6 +1819,53 @@ def main():
         default="shrouded",
         help="Tone preset for thumbnail concepts (default: shrouded).",
     )
+
+    # Publish pack subcommand
+    publish_p = subparsers.add_parser(
+        "publish-pack",
+        help="Generate an upload-ready publish_pack.md from script_narration_final.md (titles, descriptions, tags, hashtags, thumbnails).",
+    )
+    publish_p.add_argument("--project", required=True, help="Project folder name inside tools/Projects/")
+    publish_p.add_argument(
+        "--script",
+        default="script_narration_final.md",
+        help="Input narration file in the project folder (default: script_narration_final.md).",
+    )
+    publish_p.add_argument(
+        "--output",
+        default="publish_pack.md",
+        help="Output filename to write in the project folder (default: publish_pack.md).",
+    )
+    publish_p.add_argument(
+        "--channel",
+        choices=["shrouded", "aperture"],
+        default="shrouded",
+        help="Tone preset (default: shrouded).",
+    )
+    publish_p.add_argument(
+        "--model",
+        default="gpt-4o-mini",
+        help="Model to use (default: gpt-4o-mini).",
+    )
+    publish_p.add_argument(
+        "--title-count",
+        type=int,
+        default=10,
+        help="Number of title options (default: 10).",
+    )
+    publish_p.add_argument(
+        "--description-count",
+        type=int,
+        default=3,
+        help="Number of descriptions (default: 3).",
+    )
+    publish_p.add_argument(
+        "--thumbnail-count",
+        type=int,
+        default=8,
+        help="Number of thumbnail concept options (default: 8).",
+    )
+
 
         # New project subcommand
     project_parser = subparsers.add_parser(
@@ -1905,6 +2086,24 @@ def main():
         thumbs = generate_thumbnails_from_assistant(seed_idea, channel=channel)
         print("=== THUMBNAIL CONCEPTS ===\n")
         print(thumbs)
+
+    elif args.command == "publish-pack":
+        project_dir = Path(_get_project_dir(args.project))
+        print(
+            f"\n[Creator Assistant] Generating PUBLISH PACK "
+            f"(project='{args.project}', channel='{args.channel}', model='{args.model}')...\n"
+        )
+        out_path = run_publish_pack(
+            project_dir=project_dir,
+            script_filename=args.script,
+            output_filename=args.output,
+            channel=args.channel,
+            model=args.model,
+            title_count=args.title_count,
+            description_count=args.description_count,
+            thumbnail_count=args.thumbnail_count,
+        )
+        print(f"[OK] Publish pack written: {out_path}")
 
 
     elif args.command == "new-project":
