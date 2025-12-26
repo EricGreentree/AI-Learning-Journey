@@ -209,56 +209,83 @@ def generate_ideas_from_assistant(
             "Narration is sparse and atmospheric, focusing on visual investigation rather than character psychology."
         )
 
-    prompt = f"""
-You are designing episode concepts for a YouTube horror channel.
+    if channel == "aperture":
+        prompt = f"""
+You are generating IMAGE IDEA lists for a YouTube channel called *Aperture Black*.
 
-CHANNEL STYLE:
-- Work in {style_description}
-- Focus on a CENTRAL ANOMALY or SYSTEM (device, program, corporation, experiment, location).
-- Show how it intersects with normal life: suburbs, offices, infrastructure, digital platforms.
-- Each concept should be self-contained, distinct from the others, and scalable to a 20–40 minute episode.
+Aperture Black format:
+- The video is a collection of unsettling images (photos, scans, frames) presented as a recovered set.
+- Narration is minimal or absent; each idea should be visual-first.
+- Avoid character arcs, investigations, and documentary exposition. Do not write story treatments.
 
-IMPORTANT RULES:
-- Do NOT just describe vague feelings. Show concrete events, artifacts, footage, leaked memos, witness behavior.
-- Avoid generic 'lost tapes' or 'we don't know what happened' endings.
-- Make each idea specific enough that it feels like a real casefile, not a loose vibe.
-
-SEED IDEA:
-\"\"\"{seed_idea}\"\"\"
-
+SEED CONCEPT:
+{seed_idea}
 
 TASK:
-Generate {count} different story treatments.
+Generate {count} distinct IMAGE IDEAS. Each idea should feel like one compelling image in the collection.
 
-For EACH treatment, include:
+For each numbered item, output EXACTLY this format:
 
-1. A TITLE (evocative, like a Shrouded Ledger episode or Aperture Black video).
-2. A 2–3 sentence CORE PREMISE.
-3. The CENTRAL ANOMALY (what is actually going on? device / entity / program / experiment / infrastructure / pattern).
-4. The PRIMARY EVIDENCE that would appear in the episode:
-   - e.g., leaked internal documents, product manuals, error logs, urban legends, CCTV footage, photos, reviews, building plans.
-5. ESCALATION: 3 short bullet points that show how the situation worsens over time.
-6. PRESENT DAY STATUS: 1–2 sentences about what the world looks like after the events (cover-up? quiet integration? unexplained disappearances?).
+N) IMAGE SUBJECT: <8–14 words>
+   CAPTION: <1 short sentence, curator/recovered-archive tone>
+   VISUAL NOTES: <comma-separated visual tags / details, ~12–25 words>
 
-FORMAT IT LIKE THIS:
-
-1) TITLE: ...
-   PREMISE: ...
-   CENTRAL ANOMALY: ...
-   EVIDENCE:
-   - ...
-   - ...
-   ESCALATION:
-   - ...
-   - ...
-   - ...
-   PRESENT DAY STATUS: ...
-
-2) TITLE: ...
-   ...
-
-Make sure each treatment is clearly separated and numbered.
+RULES:
+- Keep each item compact (no paragraphs).
+- Make the visuals varied: geography, weather, lighting, structures, artifacts, signs, aerial vs ground-level, etc.
+- No gore; keep it eerie and plausible.
 """
+    else:
+        prompt = f"""
+    You are designing episode concepts for a YouTube horror channel.
+
+    CHANNEL STYLE:
+    - Work in {style_description}
+    - Focus on a CENTRAL ANOMALY or SYSTEM (device, program, corporation, experiment, location).
+    - Show how it intersects with normal life: suburbs, offices, infrastructure, digital platforms.
+    - Each concept should be self-contained, distinct from the others, and scalable to a 20–40 minute episode.
+
+    IMPORTANT RULES:
+    - Do NOT just describe vague feelings. Show concrete events, artifacts, footage, leaked memos, witness behavior.
+    - Avoid generic 'lost tapes' or 'we don't know what happened' endings.
+    - Make each idea specific enough that it feels like a real casefile, not a loose vibe.
+
+    SEED IDEA:
+    \"\"\"{seed_idea}\"\"\"
+
+
+    TASK:
+    Generate {count} different story treatments.
+
+    For EACH treatment, include:
+
+    1. A TITLE (evocative, like a Shrouded Ledger episode or Aperture Black video).
+    2. A 2–3 sentence CORE PREMISE.
+    3. The CENTRAL ANOMALY (what is actually going on? device / entity / program / experiment / infrastructure / pattern).
+    4. The PRIMARY EVIDENCE that would appear in the episode:
+       - e.g., leaked internal documents, product manuals, error logs, urban legends, CCTV footage, photos, reviews, building plans.
+    5. ESCALATION: 3 short bullet points that show how the situation worsens over time.
+    6. PRESENT DAY STATUS: 1–2 sentences about what the world looks like after the events (cover-up? quiet integration? unexplained disappearances?).
+
+    FORMAT IT LIKE THIS:
+
+    1) TITLE: ...
+       PREMISE: ...
+       CENTRAL ANOMALY: ...
+       EVIDENCE:
+       - ...
+       - ...
+       ESCALATION:
+       - ...
+       - ...
+       - ...
+       PRESENT DAY STATUS: ...
+
+    2) TITLE: ...
+       ...
+
+    Make sure each treatment is clearly separated and numbered.
+    """
 
     response = client.chat.completions.create(
         model="gpt-4o-mini",
@@ -455,6 +482,61 @@ TAGS:
 
 HASHTAGS:
 #tag1 #tag2 #tag3 ...
+"""
+
+
+def build_metadata_prompt(seed_text: str, channel: str = "shrouded") -> str:
+    """Build the prompt used for YouTube metadata generation.
+
+    This is intentionally *not* a full rewrite tool. It only packages marketing metadata
+    derived from the seed idea / finalized narration depending on the calling command.
+    """
+    channel = (channel or "shrouded").strip().lower()
+
+    if channel == "aperture":
+        channel_blurb = """You are generating YouTube metadata for a horror/liminal-image channel called *Aperture Black*.
+
+STYLE / TONE:
+- Minimal, eerie, suggestive.
+- Focus on mood: liminal spaces, analog photos, impossible or unsettling locations.
+- Titles should be short and haunting.
+- Descriptions should read like a curator note or recovered artifact.
+- Avoid over-explaining. Do not include a full story.
+"""
+    else:
+        channel_blurb = """You are generating YouTube metadata for a documentary-style horror channel called *The Shrouded Ledger*.
+
+STYLE / TONE:
+- Investigative, ominous, archival.
+- Hook-first; suggest a cover-up, anomaly, or pattern.
+- Do not write the full story. Keep it teaser-forward.
+"""
+
+    return f"""{channel_blurb}
+
+TASK:
+Using the concept below, generate an upload-ready metadata block.
+
+CONCEPT:
+{seed_text.strip()}
+
+OUTPUT FORMAT (exact headings):
+TITLE:
+<single best title>
+
+DESCRIPTION:
+<1 description, 130–220 words>
+
+TAGS (comma-separated, <= 500 characters):
+<tag1, tag2, ...>
+
+HASHTAGS (10–15, space-separated):
+#Tag #Tag ...
+
+RULES:
+- Do not include multiple title options.
+- Do not include extra sections or commentary.
+- Keep tags under 500 characters total.
 """
 
 
@@ -1029,6 +1111,7 @@ FORMAT:
 
     return response.choices[0].message.content
 
+# ---------- PUBLISH PACK GENERATOR ----------
 
 # ---------- PUBLISH PACK TOOL ----------
 
@@ -1165,8 +1248,173 @@ def run_publish_pack(
     out_path.write_text(pack_md.strip() + "\n", encoding="utf-8")
     return out_path
 
-# ---------- OUTLINE FILL ----------
+def _read_text_if_exists(path: Path) -> str:
+    try:
+        return path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return ""
+    except Exception:
+        # Fallback: try default encoding
+        return path.read_text(errors="ignore")
 
+
+def _extract_last_ab_beats(outline_text: str, beats: int = 15) -> list[str]:
+    """
+    Extract the last N beats from outline.md.
+    Expected format:
+      **Beat 1: Something**
+         Paragraph...
+    Returns list of strings, each being "Beat X: Title\nParagraph..."
+    """
+    # Find beat headers
+    header_pattern = re.compile(r"\*\*Beat\s+(\d+):\s*(.+?)\*\*", re.IGNORECASE)
+    matches = list(header_pattern.finditer(outline_text))
+
+    if not matches:
+        return []
+
+    beat_blocks = []
+    for i, m in enumerate(matches):
+        start = m.start()
+        end = matches[i + 1].start() if i + 1 < len(matches) else len(outline_text)
+        block = outline_text[start:end].strip()
+
+        # Clean up excessive whitespace
+        block = re.sub(r"\n{3,}", "\n\n", block)
+        beat_blocks.append(block)
+
+    # last N
+    return beat_blocks[-beats:]
+
+
+def _extract_ab_image_ideas(image_ideas_text: str, max_items: int = 25) -> list[dict]:
+    """
+    Parse image_ideas.md format:
+      1) IMAGE SUBJECT: ...
+         CAPTION: ...
+         VISUAL NOTES: ...
+    Returns list of dicts: {"subject":..., "caption":..., "notes":...}
+    """
+    # Split on "N) IMAGE SUBJECT:"
+    parts = re.split(r"(?m)^\s*\d+\)\s*IMAGE SUBJECT:\s*", image_ideas_text)
+    if len(parts) <= 1:
+        return []
+
+    items = []
+    for part in parts[1:]:
+        # part begins with subject line, then the rest
+        lines = [ln.rstrip() for ln in part.strip().splitlines() if ln.strip()]
+        if not lines:
+            continue
+
+        subject = lines[0].strip()
+        caption = ""
+        notes = ""
+
+        # Look for CAPTION / VISUAL NOTES in remaining lines
+        for ln in lines[1:]:
+            if ln.upper().startswith("CAPTION:"):
+                caption = ln.split(":", 1)[1].strip()
+            elif ln.upper().startswith("VISUAL NOTES:"):
+                notes = ln.split(":", 1)[1].strip()
+            else:
+                # Sometimes captions/notes wrap to next line
+                if caption and not notes and not ln.upper().startswith("VISUAL"):
+                    caption += " " + ln.strip()
+                elif notes:
+                    notes += " " + ln.strip()
+
+        items.append({"subject": subject, "caption": caption, "notes": notes})
+        if len(items) >= max_items:
+            break
+
+    return items
+
+
+def build_publish_pack_prompt_aperture(
+    *,
+    seed_idea: str,
+    beat_blocks: list[str],
+    image_ideas: list[dict],
+    thumbnail_concepts_text: str,
+    title_count: int = 10,
+    description_count: int = 3,
+    hashtag_count: int = 12,
+) -> str:
+    """
+    Aperture Black publish pack builder:
+    - Minimal text, no narration.
+    - Uses outline beats as the final gallery sequence anchors.
+    - Optionally embeds thumbnail concepts verbatim if present.
+    """
+    # Summarize some image ideas as anchors (avoid giant prompt)
+    idea_lines = []
+    for it in image_ideas[:20]:
+        s = it.get("subject", "").strip()
+        c = it.get("caption", "").strip()
+        n = it.get("notes", "").strip()
+        line = f"- SUBJECT: {s}"
+        if c:
+            line += f" | CAPTION: {c}"
+        if n:
+            line += f" | NOTES: {n}"
+        idea_lines.append(line)
+
+    beats_text = "\n\n".join(beat_blocks)
+
+    thumb_note = ""
+    if thumbnail_concepts_text.strip():
+        thumb_note = (
+            "\n\nTHUMBNAIL_CONCEPTS_FILE_EXISTS:\n"
+            "Below are existing thumbnail concepts. In the publish pack, include them verbatim "
+            "under the 'Thumbnail Concepts' section (you may include the first 8–12 concepts if very long).\n\n"
+            f"{thumbnail_concepts_text.strip()}"
+        )
+
+    prompt = f"""
+You are generating an upload-ready **Aperture Black** publish pack.
+Aperture Black videos are a **gallery of eerie images** with minimal text and **no narration**.
+Tone: mysterious, archival, “recovered / classified / erased,” curiosity-driven, minimalist.
+
+SEED IDEA:
+{seed_idea}
+
+FINAL GALLERY OUTLINE (use as anchors; do not rewrite into a story, keep it image-gallery oriented):
+{beats_text}
+
+OPTIONAL IMAGE IDEA POOL (use for title inspiration + tags + descriptive texture):
+{chr(10).join(idea_lines) if idea_lines else "(none provided)"}
+{thumb_note}
+
+OUTPUT RULES:
+- Do NOT write a script. Do NOT add narration.
+- Provide exactly {title_count} titles.
+- Provide exactly {description_count} descriptions, each in a distinct style:
+  A) Minimal recovered-archive tone (short)
+  B) Documentary/cover-up tone (medium)
+  C) Punchy curiosity hook (short)
+- Provide one comma-separated tag line under 500 characters.
+- Provide {hashtag_count} hashtags (10–15 is acceptable; target {hashtag_count}).
+- Provide thumbnail concepts:
+  - If thumbnail concepts file exists above: include it verbatim (or first 8–12 concepts).
+  - If not: generate 8–12 concepts with overlay text (1–4 words) + brief visual notes.
+- Include a 'Final Gallery Order' section listing the last 15 beats (as provided) for production reference.
+
+FORMAT EXACTLY IN THIS ORDER USING MARKDOWN HEADERS:
+# Publish Pack — Aperture Black
+## Titles
+## Descriptions
+## Tags
+## Hashtags
+## Thumbnail Concepts
+## Final Gallery Order
+"""
+    return prompt.strip()
+
+
+ 
+ # ------------- OUTLINE FILLER ----------
+    
 def fill_project_outline_from_assistant(
     project_name: str,
     seed_idea: str,
@@ -1750,6 +1998,7 @@ def main():
     )
 
        # Script Polish subcommand
+
     polish_p = subparsers.add_parser(
     "script-polish",
     help="Polish Draft 0 in script.md into a production-ready pass (no emotion labeling)."
@@ -1865,6 +2114,12 @@ def main():
         default=8,
         help="Number of thumbnail concept options (default: 8).",
     )
+    publish_p.add_argument(
+    "--seed",
+    nargs="+",
+    help="Optional seed idea for the publish pack (useful for Aperture Black).",
+    )
+
 
 
         # New project subcommand
@@ -2089,21 +2344,75 @@ def main():
 
     elif args.command == "publish-pack":
         project_dir = Path(_get_project_dir(args.project))
+        channel = args.channel  
+
         print(
             f"\n[Creator Assistant] Generating PUBLISH PACK "
-            f"(project='{args.project}', channel='{args.channel}', model='{args.model}')...\n"
+            f"(project='{args.project}', channel='{channel}', model='{args.model}')...\n"
         )
+
+        # --- Aperture Black mode ---
+        if channel == "aperture":
+            outline_path = project_dir / "outline.md"
+            if not outline_path.exists():
+                raise SystemExit("ERROR: outline.md not found. Run fill-outline first.")
+
+            outline_text = _read_text_if_exists(outline_path)
+            beat_blocks = _extract_last_ab_beats(outline_text, beats=15)
+            if not beat_blocks:
+                raise SystemExit(
+                    "ERROR: Could not parse beats from outline.md (expected **Beat X: ...** format)."
+                )
+
+            image_ideas_text = _read_text_if_exists(project_dir / "image_ideas.md")
+            image_ideas = _extract_ab_image_ideas(image_ideas_text, max_items=25) if image_ideas_text else []
+
+            thumbnail_text = _read_text_if_exists(project_dir / "thumbnail_concepts.md")
+
+            seed_idea = getattr(args, "seed", None)
+            if isinstance(seed_idea, list):
+                seed_idea = " ".join(seed_idea).strip()
+            if not seed_idea:
+                seed_idea = str(args.project)  # fallback
+
+            prompt = build_publish_pack_prompt_aperture(
+                seed_idea=seed_idea,
+                beat_blocks=beat_blocks,
+                image_ideas=image_ideas,
+                thumbnail_concepts_text=thumbnail_text,
+                title_count=args.title_count,
+                description_count=args.description_count,
+                hashtag_count=getattr(args, "hashtag_count", 12),
+            )
+
+            system = "You are Creator Assistant. Produce precise, formatted markdown output only."
+            output = call_llm(
+                system=system,
+                user=prompt,
+                model=args.model,
+                max_tokens=3500,
+                temperature=0.5,
+            )
+
+            out_path = project_dir / args.output
+            out_path.write_text(output.strip() + "\n", encoding="utf-8")
+            print(f"[Creator Assistant] Wrote: {out_path}")
+            return
+
+        # --- Shrouded Ledger / default mode (keep your existing behavior) ---
         out_path = run_publish_pack(
             project_dir=project_dir,
             script_filename=args.script,
             output_filename=args.output,
-            channel=args.channel,
+            channel=channel,
             model=args.model,
             title_count=args.title_count,
             description_count=args.description_count,
             thumbnail_count=args.thumbnail_count,
         )
-        print(f"[OK] Publish pack written: {out_path}")
+        print(f"[Creator Assistant] Wrote: {out_path}")
+        return
+
 
 
     elif args.command == "new-project":
