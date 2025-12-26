@@ -15,5 +15,7 @@ images/
 other_files/
 backup_conflict/
 
-# Project filed
+# Generated project folders (local working data)
 tools/Projects/
+Projects/
+
